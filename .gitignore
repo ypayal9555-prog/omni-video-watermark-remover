@@ -1,0 +1,11 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs and local scratch
+*.log
+*.tmp
+*.local
+node_modules/

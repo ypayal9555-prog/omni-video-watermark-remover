@@ -1,0 +1,34 @@
+Provenance notice
+=================
+
+This project is a personal, educational reconstruction of the video-only
+watermark-removal feature of the locally installed Chrome extension:
+
+  Erasio - Automate Google Flow, Gemini and Google Vids
+  Extension ID: aedhekmakfgbcknofpiccffacdjcgdpp
+  Version: 1.3.1
+
+Files copied verbatim from that local installation:
+
+  vendor/videoProcessor.js       <- page/videoProcessor.js
+  vendor/mp4box.all.min.js       <- page/vendor/mp4box.all.min.js
+  vendor/mp4-muxer.min.js        <- page/vendor/mp4-muxer.min.js
+  masks/sparkle-2026-48.png      <- assets/sparkle-2026-48.png
+  masks/sparkle-2026-96.png      <- assets/sparkle-2026-96.png
+
+The reconstructed pipeline follows the algorithm described in the source
+comments of videoProcessor.js:
+
+  "Port of geminiwatermarkremove.net's algorithm ..."
+  "Based on GeminiWatermarkTool by Allen Kuo (allenk)."
+  - https://github.com/allenk/geminiwatermarktool
+
+Third-party libraries bundled in vendor/:
+  - MP4Box.js        (mp4box.all.min.js, header: "mp4box 19-03-2022")
+  - mp4-muxer 5.2.1  (mp4-muxer.min.js, jsDelivr/Terser build)
+
+The UI (index.html, styles.css, js/app.js), README and repository scaffolding
+are original to this project.
+
+No affiliation with Erasio, Google, or the authors of the upstream components
+is implied. Review the upstream licences before redistributing.
