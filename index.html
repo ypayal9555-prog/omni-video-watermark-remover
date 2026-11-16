@@ -35,13 +35,59 @@
 
       <div class="actions">
         <button id="previewBtn" class="btn" type="button">Preview first frame</button>
+        <button id="cleanPreviewBtn" class="btn" type="button">Preview cleaned</button>
         <button id="runBtn" class="btn primary" type="button">Remove watermark</button>
       </div>
 
       <div class="canvas-box" id="canvasBox" hidden>
-        <canvas id="preview"></canvas>
-        <span class="muted small">First frame (source)</span>
+        <div class="canvas-pair">
+          <div><canvas id="preview"></canvas><span class="muted small">Before</span></div>
+          <div><canvas id="cleanPreview"></canvas><span class="muted small">After (preview)</span></div>
+        </div>
       </div>
+
+      <details class="tune" id="tuneBox">
+        <summary>Fine-tune removal (if the watermark survives)</summary>
+        <p class="muted small">
+          The engine auto-detects position and opacity. If a faint sparkle stays behind,
+          adjust these and click <strong>Apply settings</strong>, then run again.
+        </p>
+
+        <div class="grid">
+          <label>Opacity mode
+            <select id="opacityMode">
+              <option value="auto">Auto (1.0 / 0.62)</option>
+              <option value="1">Force 1.0</option>
+              <option value="0.62">Force 0.62</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label>Custom opacity <span class="val" id="opacityCustomVal">0.80</span>
+            <input type="range" id="opacityCustom" min="0.1" max="1" step="0.01" value="0.8" />
+          </label>
+          <label>Mask size <span class="val" id="maskScaleVal">1.00&times;</span>
+            <input type="range" id="maskScale" min="0.5" max="3" step="0.01" value="1" />
+          </label>
+          <label>Base strength <span class="val" id="baseStrengthVal">1.00</span>
+            <input type="range" id="baseStrength" min="0.5" max="2" step="0.05" value="1" />
+          </label>
+          <label>Blend ceiling <span class="val" id="ceilingVal">0.99</span>
+            <input type="range" id="ceiling" min="0.8" max="1" step="0.01" value="0.99" />
+          </label>
+        </div>
+
+        <div class="grid pin-grid">
+          <label class="check"><input type="checkbox" id="pinPosition" /> Pin mask position</label>
+          <label>From right (px) <input type="number" id="posDx" min="0" value="222" /></label>
+          <label>From bottom (px) <input type="number" id="posDy" min="0" value="186" /></label>
+        </div>
+        <p class="muted small">
+          Tip: click <em>Preview first frame</em> above to fill in the default offsets for your video's resolution.
+        </p>
+        <button id="detectBtn" class="btn" type="button">Auto-detect &amp; pin from first frame</button>
+        <button id="applyBtn" class="btn" type="button">Apply settings</button>
+        <span id="applyStatus" class="muted small"></span>
+      </details>
 
       <div id="progressBox" hidden>
         <div class="progress-head">
@@ -51,6 +97,11 @@
         <div class="bar"><div id="barFill"></div></div>
         <p class="muted small" id="engineLog"></p>
       </div>
+
+      <details class="debug" id="debugBox">
+        <summary>Engine debug log</summary>
+        <pre id="debugLog">No engine output yet.</pre>
+      </details>
 
       <div id="result" class="result" hidden>
         <p class="ok">Done &mdash; watermark removed.</p>
@@ -78,6 +129,7 @@
   <script src="vendor/mp4box.all.min.js"></script>
   <script src="vendor/mp4-muxer.min.js"></script>
   <script src="vendor/videoProcessor.js"></script>
+  <script src="vendor/watermarkEngine.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

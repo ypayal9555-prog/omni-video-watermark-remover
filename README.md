@@ -45,6 +45,24 @@ npx serve .
 4. Click **Remove watermark**.
 5. Click **Download clean MP4** when done.
 
+### If the watermark survives (fine-tuning)
+
+Some 2026 Omni clips need a little tuning. Open **Fine-tune removal** under the file card:
+
+- **Preview cleaned** — cleans one frame with the full-scan image engine and shows
+  Before / After plus the detection confidence, position and method in the debug log.
+- **Auto-detect & pin from first frame** — the video engine only checks a few fixed
+  corner offsets; this button uses the full-frame scanner to find the real position
+  and pins it for the video pass, then re-applies settings.
+- **Mask size** — raise to `1.10–1.40×` if a faint halo remains around where the
+  watermark was.
+- **Opacity mode / Custom opacity** — try `0.62` for a light stamp or `1.0` for a
+  crisp one; `Custom` lets you dial an in-between value.
+- **Pin mask position** — set the distance from the right / bottom edge manually.
+
+Click **Apply settings** (or just run again — current settings are re-sent automatically).
+Expand **Engine debug log** to see the exact score, chosen position and opacity.
+
 ## How it works
 
 The pipeline (verbatim from the reconstructed engine in `vendor/videoProcessor.js`):
@@ -72,11 +90,13 @@ No config endpoints, auth, credit checks, or telemetry are present.
 ├── js/app.js                      # mask loading, config injection, UI logic
 ├── vendor/
 │   ├── videoProcessor.js          # reconstructed video engine (Erasio 1.3.1)
+│   ├── watermarkEngine.js         # image engine used for frame preview/detection
 │   ├── mp4box.all.min.js          # MP4 demuxing
 │   └── mp4-muxer.min.js           # MP4 muxing
 └── masks/
-    ├── sparkle-2026-48.png        # calibrated 2026 Omni alpha map (720p)
-    └── sparkle-2026-96.png        # calibrated 2026 Omni alpha map (1080p)
+    ├── bg_48.png / bg_96.png      # original calibrated alpha maps
+    └── sparkle-2026-48.png        # calibrated 2026 Omni alpha map (720p)
+        sparkle-2026-96.png        # calibrated 2026 Omni alpha map (1080p)
 ```
 
 ## Troubleshooting
