@@ -14,6 +14,7 @@ Files copied verbatim from that local installation:
                                  (plus 3 added lines exporting
                                   __decodeVideoFrames / __erasioInpaintFrame for the
                                   standalone preview path)
+  vendor/sparkleEngine.js        <- page/sparkleEngine.js   (byte-identical, SHA-256 checked)
   vendor/veoTextEngine.js        <- page/veoTextEngine.js
   vendor/veoTextTemplates.js     <- page/veoTextTemplates.js
   vendor/watermarkEngine.js      <- page/watermarkEngine.js   (kept, not loaded)
@@ -21,8 +22,14 @@ Files copied verbatim from that local installation:
   vendor/mp4-muxer.min.js        <- page/vendor/mp4-muxer.min.js
   masks/bg_48.png                <- assets/bg_48.png
   masks/bg_96.png                <- assets/bg_96.png
+  masks/gemini-star_paired_star_mask.png <- assets/gemini-star_paired_star_mask.png
   masks/sparkle-2026-48.png      <- assets/sparkle-2026-48.png
   masks/sparkle-2026-96.png      <- assets/sparkle-2026-96.png
+
+The video constants reproduced in js/detect.js (offset tables [144,120,128,72] and
+[222,186], opacity levels [1,0.62], the mask table, the Pearson position score,
+the two-level opacity estimate and the edge-cleanup rule) were read out of the
+extension's side-panel bundle, which is not redistributed here.
 
 The Veo templates are marked GENERATED in their header and were copied byte-for-byte
 from the MIT-licensed gemini-watermark-remover runtime that the extension itself vendors:

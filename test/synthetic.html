@@ -18,15 +18,17 @@
 <h1>Synthetic watermark test</h1>
 <p>Builds a clip with a known watermark, runs the same detect → candidate → engine path the app uses, and measures what is left.</p>
 <div>
-  <button id="cA" class="primary">a) Diamond 48 / inset 96</button>
-  <button id="cB">b) Diamond, legacy fixed-offset path</button>
-  <button id="cC">c) Diamond 44 / inset 144</button>
-  <button id="cD">d) Diamond 48 / inset 32</button>
-  <button id="cE">e) Diamond, faint (opacity 0.62)</button>
+  <button id="cA" class="primary">a) Logo 48 / inset 144 (Erasio default)</button>
+  <button id="cB">b) Logo 48 / inset 96 (moved mark)</button>
+  <button id="cC">c) Logo 48 / inset 72</button>
+  <button id="cD">d) Logo 48 / inset 120 / faint 0.62</button>
+  <button id="cE">e) 2026 sparkle 48 / inset 128</button>
   <button id="cF">f) Veo wordmark 68×30</button>
   <button id="cG">g) Veo wordmark 23×10</button>
-  <button id="cH">h) Portrait 720×1280, diamond</button>
-  <button id="cI">i) 1080p, diamond 96 / inset 222</button>
+  <button id="cH">h) Portrait 720×1280, logo</button>
+  <button id="cI">i) 1080p logo 84 / inset 222</button>
+  <button id="cJ">j) 1080p 2026 sparkle 96 / inset 186</button>
+  <button id="cK">k) old mark + 2026 map (ghost check)</button>
 </div>
 <pre id="log">idle</pre>
 <div class="pair" id="shots"></div>
@@ -36,6 +38,7 @@
 <script src="../vendor/veoTextTemplates.js"></script>
 <script src="../vendor/videoProcessor.js"></script>
 <script src="../vendor/veoTextEngine.js"></script>
+<script src="../vendor/sparkleEngine.js"></script>
 <script src="../js/detect.js"></script>
 <script>
 (function () {
@@ -266,68 +269,93 @@
     return { before, after, floor, cBefore, cAfter, cClean };
   }
 
-  // ---------- diamond ----------
+  // ---------- sparkle ----------
+
+  // Feed the vendored engine the same tuning the app posts. The engine waits
+  // for this message before it calibrates, exactly like the extension.
+  async function postConfig(video) {
+    const newMaps = await window.__erasioDetect.loadNewMaps();
+    window.postMessage({ channel: "AIP_CONFIG", config: { video, newMaps } }, "*");
+    await new Promise((r) => setTimeout(r, 40));
+  }
 
   // Build the clean + watermarked clips for a case. Deterministic, so a clip
   // exported from here is reproducible later for the UI end-to-end check.
+  //
+  // opts.family:  "old" (bg_48 / paired star, Erasio's default) or "new" (2026)
+  // opts.inset:   distance from the frame edge to the mask box (Erasio's table)
+  // opts.alphaScale: multiplier on the mask's alpha (a fainter stamp)
   async function buildStar(opts, onlyClean) {
     opts = opts || {};
     W = opts.w || 1280; H = opts.h || 720;
-    const side = opts.side || 48;
-    const margin = opts.margin != null ? opts.margin : 96;
-    const opacity = opts.opacity != null ? opts.opacity : 1;
-    const x0 = W - margin - side;
-    const y0 = H - margin - side;
-    const map = await loadAlpha(side >= 64 ? "../masks/sparkle-2026-96.png" : "../masks/sparkle-2026-48.png", side);
-    log(`--- diamond ${W}x${H} side=${side} inset=${margin} opacity=${opacity} legacy=${!!opts.legacy}`);
+    const family = opts.family || "old";
+    const is1080 = (W === 1920 && H === 1080) || (W === 1080 && H === 1920);
+    const spec = window.__erasioDetect.maskSpec(family, is1080, opts.maskScale || 1);
+    const map = await window.__erasioDetect.loadMask(spec);
+    const side = map.width;
+    const inset = opts.inset != null ? opts.inset : (is1080 ? 222 : 144);
+    const alphaScale = opts.alphaScale != null ? opts.alphaScale : 1;
+    // Erasio's offset table is measured to the mask's TOP-LEFT: x = width - off.
+    const x0 = W - inset;
+    const y0 = H - inset;
+    log(`--- sparkle ${W}x${H} family=${family} mask=${spec.file} side=${side} inset=${inset} ` +
+        `alphaScale=${alphaScale}`);
 
     const clean = await encodeClip(() => {});
     const marked = onlyClean ? null : await encodeClip((img) => {
       const d = img.data;
       for (let r = 0; r < side; r++) {
         for (let c = 0; c < side; c++) {
-          const a = map.values[r * side + c] * opacity;
+          const a = map.values[r * side + c] * alphaScale;
           if (a <= 0.001) continue;
           const o = ((y0 + r) * W + (x0 + c)) * 4;
-          for (let ch = 0; ch < 3; ch++) d[o + ch] = Math.round(d[o + ch] * (1 - a) + 255 * a);
+          for (let ch = 0; ch < 3; ch++) {
+            const expected = map.colorValues ? map.colorValues[3 * (r * side + c) + ch] : 255;
+            d[o + ch] = Math.round(d[o + ch] * (1 - a) + expected * a);
+          }
         }
       }
     });
 
     const alpha = new Float32Array(side * side);
-    for (let i = 0; i < alpha.length; i++) alpha[i] = map.values[i] * opacity;
-    return { clean, marked, box: { x: x0, y: y0, w: side, h: side }, alpha, side, opacity, opts };
+    for (let i = 0; i < alpha.length; i++) alpha[i] = map.values[i] * alphaScale;
+    return { clean, marked, box: { x: x0, y: y0, w: side, h: side }, alpha, side, opts, spec, map };
   }
 
   async function runStar(opts) {
     const b = await buildStar(opts);
     const markBuf = await b.marked.arrayBuffer();
 
-    const maps = await window.__erasioDetect.loadMaps();
     const tDet = performance.now();
-    const det = await window.__erasioDetect.detect(markBuf, { maps });
+    const det = await window.__erasioDetect.detect(markBuf, {});
     log(`detect ${((performance.now() - tDet) / 1000).toFixed(1)}s: ` + JSON.stringify({
-      diamond: det.diamond && {
-        ncc: +det.diamond.ncc.toFixed(3), x: det.diamond.x, y: det.diamond.y,
-        side: det.diamond.side, alpha: det.diamond.alpha != null ? +det.diamond.alpha.toFixed(3) : null,
-        gain: det.diamond.gain != null ? +det.diamond.gain.toFixed(3) : null,
-        perSize: det.diamond.perSize,
+      family: det.family,
+      scores: det.scores,
+      logo: det.logo && {
+        x: det.logo.x, y: det.logo.y, side: det.logo.side,
+        score: +det.logo.score.toFixed(3), opacity: det.logo.opacity,
+        method: det.logo.method, peakAlpha: det.logo.peakAlpha != null ? +det.logo.peakAlpha.toFixed(3) : null,
       },
       veo: det.veo && +det.veo.ncc.toFixed(3),
       chosen: det.chosen,
     }));
 
+    // The app's real path: Erasio's engine calibrates itself; we only hand it
+    // the logo family (and a pin when the mark moved off the inset table).
+    const family = (opts && opts.forceFamily) || det.family || "old";
+    const pin = det.logo && det.logo.drifted && !(opts && opts.noPin)
+      ? { mode: "pinned", dx: W - det.logo.x, dy: H - det.logo.y }
+      : null;
+    await postConfig({
+      logoVersion: family, baseStrength: 1, opacityMode: "auto",
+      edgeMode: "auto", edgeStrength: 0.6, maskScale: 1, maskPosition: pin,
+    });
+
     const t0 = performance.now();
-    let blob;
-    if (opts && opts.legacy) {
-      blob = await window.__purifyVideo(markBuf, { onProgress: () => {} });
-    } else {
-      const cand = window.__erasioDetect.buildDiamondCandidate(det.diamond, W, H, { maps, cleanup: 0.6 });
-      log(`candidate pos=(${cand.x},${cand.y}) box=${cand.alphaMap.width}px gain=${cand.baseStrength.toFixed(3)}`);
-      blob = await window.__purifyVideo(markBuf, { detector: () => cand, onProgress: () => {} });
-    }
+    const blob = await window.__purifyVideo(markBuf, { onProgress: () => {} });
     const outBuf = await blob.arrayBuffer();
-    log(`engine ${((performance.now() - t0) / 1000).toFixed(1)}s -> ${(outBuf.byteLength / 1024).toFixed(0)}KB`);
+    log(`engine ${((performance.now() - t0) / 1000).toFixed(1)}s -> ${(outBuf.byteLength / 1024).toFixed(0)}KB ` +
+        `(family=${family}${pin ? ", pinned" : ""})`);
     return compare(b.clean, b.marked, outBuf, b.box, b.alpha, 24, 6);
   }
 
@@ -364,10 +392,9 @@
     const b = await buildVeo(opts);
     const markBuf = await b.marked.arrayBuffer();
 
-    const maps = await window.__erasioDetect.loadMaps();
-    const det = await window.__erasioDetect.detect(markBuf, { maps });
+    const det = await window.__erasioDetect.detect(markBuf, {});
     log("detect: " + JSON.stringify({
-      diamond: det.diamond && +det.diamond.ncc.toFixed(3),
+      sparkle: det.logo && { family: det.logo.family, score: +det.logo.score.toFixed(3) },
       veo: det.veo && { ncc: +det.veo.ncc.toFixed(3), x: det.veo.x, y: det.veo.y, id: det.veo.templateId },
       chosen: det.chosen,
     }));
@@ -382,21 +409,37 @@
   // ---------- case table, export + verify ----------
 
   const specs = {
-    a: { kind: "star", opts: { side: 48, margin: 96 } },
-    b: { kind: "star", opts: { side: 48, margin: 96, legacy: true } },
-    c: { kind: "star", opts: { side: 44, margin: 144 } },
-    d: { kind: "star", opts: { side: 48, margin: 32 } },
-    e: { kind: "star", opts: { side: 48, margin: 96, opacity: 0.62 } },
+    // a: Erasio's canonical 720p case — old logo, first inset in its table.
+    a: { kind: "star", opts: {} },
+    // b: the mark moved off the inset table (96 is not in [144,120,128,72]).
+    b: { kind: "star", opts: { inset: 96 } },
+    // c: the other extreme of the table.
+    c: { kind: "star", opts: { inset: 72 } },
+    // d: fainter stamp — Erasio's Ib() should pick opacity 0.62.
+    d: { kind: "star", opts: { inset: 120, alphaScale: 0.62 } },
+    // e: the 2026 logo family (softer alpha, different map).
+    e: { kind: "star", opts: { family: "new", inset: 128 } },
     f: { kind: "veo", opts: { template: "veo-text-68x30" } },
     g: { kind: "veo", opts: { template: "veo-text-23x10", peak: 0.45 } },
-    h: { kind: "star", opts: { w: 720, h: 1280, side: 48, margin: 96 } },
-    i: { kind: "star", opts: { w: 1920, h: 1080, side: 96, margin: 222 } },
+    // h: portrait.
+    h: { kind: "star", opts: { w: 720, h: 1280, inset: 144 } },
+    // i: 1080p old logo — 84px RGBA paired-star mask, inset table [222,186].
+    i: { kind: "star", opts: { w: 1920, h: 1080, inset: 222 } },
+    // j: 1080p 2026 logo — 96px sparkle.
+    j: { kind: "star", opts: { w: 1920, h: 1080, family: "new", inset: 186 } },
+    // k: the old bug, reproduced on purpose — an old-family mark removed with
+    // the 2026 map. This SHOULD leave a ghost; it is the regression case that
+    // proves the family choice matters.
+    k: { kind: "star", opts: { forceFamily: "new", expectGhost: true } },
   };
   const cases = {};
   Object.keys(specs).forEach((k) => {
     cases[k] = () => (specs[k].kind === "veo" ? runVeo(specs[k].opts) : runStar(specs[k].opts));
   });
-  const buttons = { cA: "a", cB: "b", cC: "c", cD: "d", cE: "e", cF: "f", cG: "g", cH: "h", cI: "i" };
+  const buttons = {
+    cA: "a", cB: "b", cC: "c", cD: "d", cE: "e", cF: "f",
+    cG: "g", cH: "h", cI: "i", cJ: "j", cK: "k",
+  };
 
   function download(blob, name) {
     const a = document.createElement("a");
