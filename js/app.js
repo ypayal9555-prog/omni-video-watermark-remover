@@ -10,11 +10,13 @@
     fileSize: $("fileSize"),
     resetBtn: $("resetBtn"),
     previewBtn: $("previewBtn"),
+    detectBtn: $("detectBtn"),
     cleanPreviewBtn: $("cleanPreviewBtn"),
     cleanPreview: $("cleanPreview"),
     runBtn: $("runBtn"),
     canvasBox: $("canvasBox"),
     canvas: $("preview"),
+    detectStatus: $("detectStatus"),
     progressBox: $("progressBox"),
     stage: $("stage"),
     percent: $("percent"),
@@ -24,25 +26,23 @@
     download: $("download"),
     resultSize: $("resultSize"),
     error: $("error"),
-    opacityMode: $("opacityMode"),
-    opacityCustom: $("opacityCustom"),
-    opacityCustomVal: $("opacityCustomVal"),
-    maskScale: $("maskScale"),
-    maskScaleVal: $("maskScaleVal"),
-    baseStrength: $("baseStrength"),
-    baseStrengthVal: $("baseStrengthVal"),
-    ceiling: $("ceiling"),
-    ceilingVal: $("ceilingVal"),
+    engineMode: $("engineMode"),
+    strength: $("strength"),
+    strengthVal: $("strengthVal"),
+    cleanup: $("cleanup"),
+    cleanupVal: $("cleanupVal"),
     pinPosition: $("pinPosition"),
     posDx: $("posDx"),
     posDy: $("posDy"),
-    detectBtn: $("detectBtn"),
+    posSize: $("posSize"),
+    forceRun: $("forceRun"),
     applyBtn: $("applyBtn"),
     applyStatus: $("applyStatus"),
     debugLog: $("debugLog"),
   };
 
   const STAGE_LABELS = {
+    detect: "Scanning frames for the watermark…",
     demux: "Reading video…",
     analyze: "Locating the watermark…",
     process: "Erasing watermark, frame by frame…",
@@ -53,10 +53,10 @@
   let currentFile = null;
   let currentBuffer = null;
   let resultUrl = null;
+  let previewImage = null;
   let busy = false;
+  let detection = null;   // cached __erasioDetect.detect() result for this file
 
-  // Settings mirror the original side panel's video tuning. They are re-sent
-  // to the engine through AIP_CONFIG before every run.
   const settings = {
     logoVersion: "new",
     opacityMode: "auto",
@@ -74,7 +74,12 @@
   };
 
   const debugLines = [];
-  let imageEngine = null;
+
+  function dbg(line) {
+    debugLines.push(line);
+    if (debugLines.length > 40) debugLines.shift();
+    el.debugLog.textContent = debugLines.join("\n");
+  }
 
   function showError(message) {
     el.error.textContent = message;
@@ -86,12 +91,21 @@
     el.error.textContent = "";
   }
 
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1024 / 1024).toFixed(1) + " MB";
+  }
+
   function resetUI() {
     currentFile = null;
     currentBuffer = null;
+    previewImage = null;
+    detection = null;
     el.file.value = "";
     el.fileCard.hidden = true;
     el.canvasBox.hidden = true;
+    el.detectStatus.hidden = true;
     el.progressBox.hidden = true;
     el.result.hidden = true;
     clearError();
@@ -101,17 +115,12 @@
     }
   }
 
-  function formatBytes(bytes) {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / 1024 / 1024).toFixed(1) + " MB";
-  }
-
   function checkSupport() {
     const missing = [];
     if (typeof MP4Box === "undefined") missing.push("MP4Box");
     if (typeof Mp4Muxer === "undefined") missing.push("Mp4Muxer");
     if (typeof window.__purifyVideo !== "function") missing.push("video engine");
+    if (typeof window.__purifyVeoVideo !== "function") missing.push("Veo engine");
     if (typeof VideoDecoder === "undefined" || typeof VideoEncoder === "undefined") missing.push("WebCodecs");
     if (typeof OffscreenCanvas === "undefined" || typeof createImageBitmap !== "function") missing.push("OffscreenCanvas");
     if (missing.length) {
@@ -122,38 +131,13 @@
     return true;
   }
 
-  // Decode a calibrated mask PNG exactly the way the extension does:
-  // grayscale-on-black capture -> max(R,G,B) / 255 per pixel.
-  async function loadMask(url, size) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("Cannot load " + url + " (HTTP " + res.status + ")");
-    const bmp = await createImageBitmap(await res.blob());
-    const canvas = new OffscreenCanvas(size, size);
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(bmp, 0, 0, size, size);
-    bmp.close();
-    const data = ctx.getImageData(0, 0, size, size).data;
-    const values = new Float32Array(size * size);
-    for (let i = 0; i < values.length; i++) {
-      const o = i * 4;
-      values[i] = Math.max(data[o], data[o + 1], data[o + 2]) / 255;
-    }
-    return { side: size, values };
-  }
-
-  // The engine receives its settings over an in-page message channel.
-  // Supplying the 2026 ("new" / Omni) maps here reproduces the extension's
-  // exact watermark-removal behaviour for Gemini/Omni videos.
+  // The engine keeps a copy of the side panel's video tuning. The detector path
+  // sets position/opacity itself, but the tuning still drives the engine's
+  // non-detector fallback, so keep it in sync.
   let masks = null;
 
   async function publishConfig() {
-    if (!masks) {
-      const [s48, s96] = await Promise.all([
-        loadMask("masks/sparkle-2026-48.png", 48),
-        loadMask("masks/sparkle-2026-96.png", 96),
-      ]);
-      masks = { s48, s96 };
-    }
+    if (!masks) masks = await window.__erasioDetect.loadMaps();
     const config = {
       image: { logoVersion: "new" },
       video: { ...settings },
@@ -162,43 +146,38 @@
     window.postMessage({ channel: "AIP_CONFIG", config }, "*");
   }
 
-  // Capture the engine's own log lines (position / score / opacity) so the
-  // user can see whether it actually detected the watermark.
+  // Surface the engines' own diagnostics in the UI.
   function captureConsole() {
     const original = console.log.bind(console);
     console.log = function (...args) {
       const text = args.map((a) => (typeof a === "string" ? a : String(a))).join(" ");
-      if (text.includes("[Erasio Video]")) {
-        debugLines.push(text.replace(/^.*\[Erasio Video\]\s*/, ""));
-        if (debugLines.length > 12) debugLines.shift();
-        el.debugLog.textContent = debugLines.join("\n");
+      if (text.includes("[Erasio Video]") || text.includes("[Erasio Veo]")) {
+        dbg(text.replace(/^.*\[Erasio (?:Video|Veo)\]\s*/, ""));
       }
       original(...args);
     };
   }
 
-  function syncSliderLabels() {
-    el.opacityCustomVal.textContent = Number(el.opacityCustom.value).toFixed(2);
-    el.maskScaleVal.textContent = Number(el.maskScale.value).toFixed(2) + "×";
-    el.baseStrengthVal.textContent = Number(el.baseStrength.value).toFixed(2);
-    el.ceilingVal.textContent = Number(el.ceiling.value).toFixed(2);
+  function syncLabels() {
+    el.strengthVal.textContent = Number(el.strength.value).toFixed(2) + "×";
+    el.cleanupVal.textContent = Number(el.cleanup.value).toFixed(2);
   }
 
-  function readSettingsFromUI() {
-    settings.opacityMode = el.opacityMode.value;
-    settings.opacityCustom = Number(el.opacityCustom.value);
-    settings.maskScale = Number(el.maskScale.value);
-    settings.baseStrength = Number(el.baseStrength.value);
-    settings.ceiling = Number(el.ceiling.value);
+  function readSettings() {
+    settings.opacityMode = "auto";
+    settings.baseStrength = Number(el.strength.value);
+    settings.edgeStrength = Number(el.cleanup.value);
+    settings.edgeMode = Number(el.cleanup.value) > 0 ? "on" : "off";
     settings.maskPosition = el.pinPosition.checked
       ? { mode: "pinned", dx: Number(el.posDx.value), dy: Number(el.posDy.value) }
       : null;
   }
 
   async function applySettings() {
-    readSettingsFromUI();
+    readSettings();
     await publishConfig();
-    el.applyStatus.textContent = "Applied — next run will use these settings.";
+    el.applyStatus.textContent = "Applied.";
+    detection = null; // pin/size may have changed
   }
 
   async function acceptFile(file) {
@@ -209,13 +188,33 @@
     }
     clearError();
     currentFile = file;
+    detection = null;
+    previewImage = null;
     currentBuffer = await file.arrayBuffer();
     el.fileName.textContent = file.name;
     el.fileSize.textContent = formatBytes(file.size);
     el.fileCard.hidden = false;
     el.canvasBox.hidden = true;
+    el.detectStatus.hidden = true;
     el.progressBox.hidden = true;
     el.result.hidden = true;
+  }
+
+  // ---------- preview ----------
+
+  function paintBefore(imageData, box) {
+    el.canvas.width = imageData.width;
+    el.canvas.height = imageData.height;
+    const ctx = el.canvas.getContext("2d");
+    ctx.putImageData(imageData, 0, 0);
+    if (box) {
+      ctx.save();
+      ctx.strokeStyle = "#0abab5";
+      ctx.lineWidth = Math.max(1, Math.round(imageData.width / 640));
+      ctx.strokeRect(box.x + 0.5, box.y + 0.5, box.w, box.h);
+      ctx.restore();
+    }
+    el.canvasBox.hidden = false;
   }
 
   async function previewFrame() {
@@ -223,19 +222,12 @@
     clearError();
     el.previewBtn.disabled = true;
     try {
-      const { imageData, width, height } = await window.__decodeVideoFrame(currentBuffer, 0.05);
-      el.canvas.width = width;
-      el.canvas.height = height;
-      el.canvas.getContext("2d").putImageData(imageData, 0, 0);
-      el.canvasBox.hidden = false;
-
-      // Fill in the calibrated corner offsets for this resolution.
-      const is1080 = (width === 1920 && height === 1080) || (width === 1080 && height === 1920);
-      const def = is1080 ? [222, 186] : [144, 120];
-      el.posDx.value = def[0];
-      el.posDy.value = def[1];
-      debugLines.push(`preview: ${width}x${height}, default corner offsets ${def[0]}/${def[1]}`);
-      el.debugLog.textContent = debugLines.join("\n");
+      const frame = await window.__decodeVideoFrame(currentBuffer, 0.05);
+      previewImage = frame.imageData;
+      paintBefore(previewImage, detection && detection.chosen === "diamond" && detection.diamond
+        ? { x: detection.diamond.x, y: detection.diamond.y, w: detection.diamond.side, h: detection.diamond.side }
+        : null);
+      dbg(`preview: ${frame.width}x${frame.height}` + (detection ? "" : " (run Detect for a box)"));
     } catch (err) {
       showError("Preview failed: " + (err && err.message ? err.message : String(err)));
     } finally {
@@ -243,68 +235,136 @@
     }
   }
 
-  async function ensureImageEngine() {
-    if (imageEngine) return;
-    const Engine = window.__erasioImageEngine && window.__erasioImageEngine.GeminiWatermarkEngine;
-    if (!Engine) throw new Error("image engine not loaded");
-    imageEngine = new Engine();
-    await imageEngine.init(
-      "masks/bg_48.png", "masks/bg_96.png",
-      "masks/sparkle-2026-48.png", "masks/sparkle-2026-96.png"
+  // ---------- detection ----------
+
+  function candidateFromPin(width, height) {
+    const det = detection && detection.diamond;
+    const side = Math.max(8, Math.min(
+      Math.round(Number(el.posSize.value) || (det ? det.side : 48)),
+      Math.min(width, height)
+    ));
+    // dx/dy are the mark's inset from the right/bottom frame edge, i.e. the
+    // gap between the corner and the watermark itself — the number the Gemini
+    // docs quote. The mask's top-left is that inset back from the corner.
+    const dx = Math.max(0, Math.round(Number(el.posDx.value)));
+    const dy = Math.max(0, Math.round(Number(el.posDy.value)));
+    const x = Math.max(0, Math.min(width - side, width - dx - side));
+    const y = Math.max(0, Math.min(height - side, height - dy - side));
+    return window.__erasioDetect.buildDiamondCandidate(
+      { x, y, side, gain: det && det.gain != null ? det.gain : 1 },
+      width, height,
+      { maps: masks, cleanup: Number(el.cleanup.value), strength: Number(el.strength.value) }
     );
   }
 
-  // Clean one frame with the image engine so the user can see whether the
-  // watermark was detected and whether the current settings remove it — without
-  // waiting for the whole video to re-encode.
+  function diamondCandidate(width, height) {
+    if (el.pinPosition.checked) return candidateFromPin(width, height);
+    if (!detection || !detection.diamond) return null;
+    // Only trust a position the scorer actually accepted. The best-scoring
+    // spot on a clip with NO mark is still a spot — painting it would punch a
+    // hole in clean footage. Explicit "Diamond only" / force-run are overrides.
+    const trusted = detection.chosen === "diamond";
+    const override = el.engineMode.value === "diamond" || el.forceRun.checked;
+    if (!trusted && !override) return null;
+    return window.__erasioDetect.buildDiamondCandidate(
+      detection.diamond, width, height,
+      { maps: masks, cleanup: Number(el.cleanup.value) }
+    );
+  }
+
+  function describeDetection(d) {
+    const bits = [];
+    if (d.diamond) {
+      bits.push(`diamond NCC ${d.diamond.ncc.toFixed(2)} at ${d.diamond.x},${d.diamond.y} ` +
+        `(${d.diamond.side}px` + (d.diamond.alpha != null ? `, alpha ${d.diamond.alpha.toFixed(2)}` : "") + ")");
+    }
+    if (d.veo) {
+      bits.push(`Veo NCC ${d.veo.ncc.toFixed(2)} at ${d.veo.x},${d.veo.y} (${d.veo.templateId})`);
+    }
+    return bits.join(" · ");
+  }
+
+  async function detectWatermark(quiet) {
+    if (!currentBuffer) return null;
+    clearError();
+    if (!quiet) {
+      el.detectBtn.disabled = true;
+      el.detectStatus.hidden = false;
+      el.detectStatus.textContent = "Scanning frames…";
+    }
+    try {
+      const d = await window.__erasioDetect.detect(currentBuffer, {
+        maps: masks,
+        onProgress: (r) => { if (!quiet) el.detectStatus.textContent = `Scanning frames… ${Math.round(r * 100)}%`; },
+      });
+      detection = d;
+      dbg(`detect: ${d.width}x${d.height} — ${describeDetection(d)}`);
+
+      let text = describeDetection(d) || "no template matched";
+      if (d.chosen === "veo") text = "Veo wordmark found — " + text;
+      else if (d.chosen === "diamond") text = "Diamond found — " + text;
+      else text = "Nothing found — " + text;
+
+      el.detectStatus.hidden = false;
+      el.detectStatus.textContent = text;
+      el.detectStatus.className = "status " + (d.chosen ? "ok" : "warn");
+
+      if (d.diamond) {
+        el.posSize.value = d.diamond.side;
+        el.posDx.value = d.width - (d.diamond.x + d.diamond.side);
+        el.posDy.value = d.height - (d.diamond.y + d.diamond.side);
+      }
+      if (!quiet && previewImage) {
+        const box = d.chosen === "diamond" && d.diamond
+          ? { x: d.diamond.x, y: d.diamond.y, w: d.diamond.side, h: d.diamond.side }
+          : d.chosen === "veo" && d.veo
+            ? { x: d.veo.x, y: d.veo.y, w: d.veo.width, h: d.veo.height }
+            : null;
+        paintBefore(previewImage, box);
+      }
+      return d;
+    } catch (err) {
+      showError("Detection failed: " + (err && err.message ? err.message : String(err)));
+      return null;
+    } finally {
+      if (!quiet) el.detectBtn.disabled = false;
+    }
+  }
+
+  // ---------- clean preview ----------
+
   async function cleanPreview() {
     if (!currentBuffer || busy) return;
     clearError();
     el.cleanPreviewBtn.disabled = true;
     try {
-      await ensureImageEngine();
-
-      const { imageData, width, height } = await window.__decodeVideoFrame(currentBuffer, 0.05);
-      el.canvas.width = width;
-      el.canvas.height = height;
-      el.canvas.getContext("2d").putImageData(imageData, 0, 0);
-      el.canvasBox.hidden = false;
-
-      const is1080 = (width === 1920 && height === 1080) || (width === 1080 && height === 1920);
-      const size = is1080 ? 96 : 48;
-      let forcePosition = null;
-      if (settings.maskPosition) {
-        const dx = Number(settings.maskPosition.dx);
-        const dy = Number(settings.maskPosition.dy);
-        forcePosition = {
-          x: Math.max(0, Math.min(width - size, Math.round(width - dx))),
-          y: Math.max(0, Math.min(height - size, Math.round(height - dy))),
-          size,
-        };
+      if (!previewImage) {
+        const frame = await window.__decodeVideoFrame(currentBuffer, 0.05);
+        previewImage = frame.imageData;
       }
-
-      const clone = new ImageData(new Uint8ClampedArray(imageData.data), width, height);
-      const result = imageEngine.removeWatermarkAuto(clone, {
-        logoVersion: "new",
-        maskScale: settings.maskScale,
-        logoValue: settings.overlayValue,
-        maxAlpha: settings.ceiling,
-        forcePosition,
-      });
-
-      el.cleanPreview.width = width;
-      el.cleanPreview.height = height;
-      el.cleanPreview.getContext("2d").putImageData(clone, 0, 0);
-
-      debugLines.push(
-        `preview clean: success=${result.success} confidence=${Number(result.confidence || 0).toFixed(3)} ` +
-        `pos=(${result.position.x},${result.position.y}) size=${result.size} ` +
-        `method=${result.method} pixels=${result.pixelsModified}`
-      );
-      el.debugLog.textContent = debugLines.join("\n");
-      if (!result.success) {
-        el.applyStatus.textContent = "No watermark detected in this frame — try pinning the position.";
+      if (!detection || !detection.chosen) await detectWatermark(true);
+      const mode = el.engineMode.value;
+      if (mode === "veo" || (mode === "auto" && detection && detection.chosen === "veo")) {
+        showError("The Veo wordmark preview is not available yet — run the removal to check it.");
+        return;
       }
+      const candidate = diamondCandidate(previewImage.width, previewImage.height);
+      if (!candidate) {
+        showError("No diamond position to preview. Run Detect first, or pin the position manually.");
+        return;
+      }
+      candidate.baseStrength *= Number(el.strength.value);
+
+      const clone = new ImageData(new Uint8ClampedArray(previewImage.data), previewImage.width, previewImage.height);
+      const out = window.__erasioInpaintFrame(clone, candidate);
+
+      paintBefore(previewImage, { x: candidate.x, y: candidate.y, w: candidate.alphaMap.width, h: candidate.alphaMap.height });
+      el.cleanPreview.width = out.width;
+      el.cleanPreview.height = out.height;
+      el.cleanPreview.getContext("2d").putImageData(out, 0, 0);
+
+      dbg(`preview clean: pos=(${candidate.x},${candidate.y}) box=${candidate.alphaMap.width}px ` +
+        `gain=${candidate.baseStrength.toFixed(2)} cleanup=${el.cleanup.value}`);
     } catch (err) {
       showError("Clean preview failed: " + (err && err.message ? err.message : String(err)));
     } finally {
@@ -312,47 +372,7 @@
     }
   }
 
-  // The video engine checks only a few fixed corner offsets. The image engine
-  // scans the whole frame, so use it to find the real position and pin it for
-  // the video pass. This fixes "output produced but watermark still visible".
-  async function detectAndPin() {
-    if (!currentBuffer || busy) return;
-    clearError();
-    el.detectBtn.disabled = true;
-    el.applyStatus.textContent = "Scanning first frame…";
-    try {
-      await ensureImageEngine();
-      const { imageData, width, height } = await window.__decodeVideoFrame(currentBuffer, 0.05);
-      const clone = new ImageData(new Uint8ClampedArray(imageData.data), width, height);
-      const result = imageEngine.removeWatermarkAuto(clone, { logoVersion: "new" });
-
-      debugLines.push(
-        `detect: success=${result.success} confidence=${Number(result.confidence || 0).toFixed(3)} ` +
-        `pos=(${result.position.x},${result.position.y}) size=${result.size}`
-      );
-      el.debugLog.textContent = debugLines.join("\n");
-
-      if (!result.success || Number(result.confidence || 0) < 0.2) {
-        el.applyStatus.textContent =
-          "No confident detection — use 'Preview cleaned' and pin the position manually.";
-        return;
-      }
-
-      const dx = Math.max(0, Math.round(width - result.position.x));
-      const dy = Math.max(0, Math.round(height - result.position.y));
-      el.posDx.value = dx;
-      el.posDy.value = dy;
-      el.pinPosition.checked = true;
-      await applySettings();
-      el.applyStatus.textContent =
-        `Pinned at (${result.position.x},${result.position.y}), confidence ` +
-        `${Number(result.confidence).toFixed(2)} — run again.`;
-    } catch (err) {
-      showError("Detection failed: " + (err && err.message ? err.message : String(err)));
-    } finally {
-      el.detectBtn.disabled = false;
-    }
-  }
+  // ---------- run ----------
 
   function setProgress(stage, ratio) {
     el.stage.textContent = STAGE_LABELS[stage] || stage || "Working…";
@@ -370,15 +390,73 @@
     el.progressBox.hidden = false;
     el.runBtn.disabled = true;
     el.previewBtn.disabled = true;
-    setProgress("demux", 0);
+    el.detectBtn.disabled = true;
+    setProgress("detect", 0);
 
     try {
-      // Re-publish current tuning so a slider change always reaches the engine,
-      // even if the user forgot to click "Apply settings".
+      readSettings();
       await publishConfig();
-      const blob = await window.__purifyVideo(currentBuffer, {
-        onProgress: (p) => setProgress(p.stage, p.ratio),
-      });
+
+      if (!detection) {
+        const d = await detectWatermark(true);
+        // A failed detection must not block the manual paths: the whole point
+        // of pinning a position (or forcing a run) is to clean a clip the
+        // scorer isn't sure about.
+        if (!d && !el.pinPosition.checked && !el.forceRun.checked) {
+          throw new Error("no watermark detected — nothing was re-encoded. " +
+            "Use Preview cleaned to check the box, pin the position manually, or tick " +
+            "\"Run even if nothing is detected\".");
+        }
+      }
+
+      const mode = el.engineMode.value;
+      const chosen = detection ? detection.chosen : null;
+      const useVeo = mode === "veo" || (mode === "auto" && chosen === "veo");
+      const diamondRequested = mode === "diamond" || (mode === "auto" && chosen === "diamond");
+      const useDiamond = !useVeo &&
+        (diamondRequested || el.pinPosition.checked || el.forceRun.checked);
+
+      if (!useVeo && !useDiamond) {
+        throw new Error("no watermark detected — nothing was re-encoded. Use Preview " +
+          "cleaned to check the box, pin the position manually, or tick " +
+          "\"Run even if nothing is detected\".");
+      }
+
+      let blob;
+      if (useVeo) {
+        dbg("engine: Veo wordmark");
+        try {
+          blob = await window.__purifyVeoVideo(currentBuffer, {
+            onProgress: ({ stage, ratio }) => setProgress(stage, ratio),
+          });
+        } catch (err) {
+          if (err && err.code === "ERASIO_NO_WATERMARK") {
+            throw new Error("the Veo wordmark was not found in this clip — pick " +
+              "\"Diamond only\" if it is a Gemini/Omni diamond video.");
+          }
+          throw err;
+        }
+      } else {
+        // Detection carries the clip size; when it failed, take it from a frame.
+        let width = detection && detection.width;
+        let height = detection && detection.height;
+        if (!width || !height) {
+          const frame = await window.__decodeVideoFrame(currentBuffer, 0.05);
+          width = frame.width;
+          height = frame.height;
+        }
+        const candidate = diamondCandidate(width, height);
+        if (!candidate) throw new Error("no diamond candidate — run Detect or pin the position");
+        candidate.baseStrength *= Number(el.strength.value);
+        dbg(`engine: diamond pos=(${candidate.x},${candidate.y}) box=${candidate.alphaMap.width}px ` +
+          `gain=${candidate.baseStrength.toFixed(2)}`);
+        blob = await window.__purifyVideo(currentBuffer, {
+          detector: () => candidate,
+          detectorLabel: "diamond",
+          onProgress: ({ stage, ratio }) => setProgress(stage, ratio),
+        });
+      }
+
       if (resultUrl) URL.revokeObjectURL(resultUrl);
       resultUrl = URL.createObjectURL(blob);
       el.download.href = resultUrl;
@@ -397,6 +475,7 @@
       busy = false;
       el.runBtn.disabled = false;
       el.previewBtn.disabled = false;
+      el.detectBtn.disabled = false;
     }
   }
 
@@ -424,23 +503,20 @@
     el.file.addEventListener("change", (e) => acceptFile(e.target.files[0]));
     el.resetBtn.addEventListener("click", resetUI);
     el.previewBtn.addEventListener("click", previewFrame);
+    el.detectBtn.addEventListener("click", () => detectWatermark(false));
     el.cleanPreviewBtn.addEventListener("click", cleanPreview);
-    el.detectBtn.addEventListener("click", detectAndPin);
     el.runBtn.addEventListener("click", run);
     el.applyBtn.addEventListener("click", applySettings);
-
-    [el.opacityCustom, el.maskScale, el.baseStrength, el.ceiling].forEach((input) =>
-      input.addEventListener("input", syncSliderLabels)
-    );
-    el.opacityMode.addEventListener("change", () => {
-      el.opacityCustom.disabled = el.opacityMode.value !== "custom";
+    [el.strength, el.cleanup].forEach((input) => input.addEventListener("input", syncLabels));
+    el.engineMode.addEventListener("change", () => {
+      detection = null;
+      el.applyStatus.textContent = "";
     });
   }
 
   (async function init() {
     captureConsole();
-    syncSliderLabels();
-    el.opacityCustom.disabled = el.opacityMode.value !== "custom";
+    syncLabels();
     if (!checkSupport()) return;
     try {
       await publishConfig();

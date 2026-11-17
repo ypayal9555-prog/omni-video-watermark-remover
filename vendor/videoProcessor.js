@@ -975,6 +975,9 @@
     // Multi-frame single-pass decode (page/veoTextEngine.js uses it to calibrate
     // the wordmark's alpha stamp without paying for N separate decodes).
     window.__decodeVideoFrames = decodeFramesAt;
+    // Added for the standalone tool: expose the exact per-frame math so the
+    // single-frame preview is identical to what the video pass writes.
+    window.__erasioInpaintFrame = inpaintFrame;
 
     // Receive live tuning from the content script (side-panel video settings).
     window.addEventListener("message", (event) => {

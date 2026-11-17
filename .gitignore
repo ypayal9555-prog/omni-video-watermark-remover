@@ -9,3 +9,6 @@ Thumbs.db
 *.tmp
 *.local
 node_modules/
+
+# Local test artifacts (generated MP4s)
+test/clips/

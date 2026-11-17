@@ -11,13 +11,22 @@ watermark-removal feature of the locally installed Chrome extension:
 Files copied verbatim from that local installation:
 
   vendor/videoProcessor.js       <- page/videoProcessor.js
-  vendor/watermarkEngine.js      <- page/watermarkEngine.js
+                                 (plus 3 added lines exporting
+                                  __decodeVideoFrames / __erasioInpaintFrame for the
+                                  standalone preview path)
+  vendor/veoTextEngine.js        <- page/veoTextEngine.js
+  vendor/veoTextTemplates.js     <- page/veoTextTemplates.js
+  vendor/watermarkEngine.js      <- page/watermarkEngine.js   (kept, not loaded)
   vendor/mp4box.all.min.js       <- page/vendor/mp4box.all.min.js
   vendor/mp4-muxer.min.js        <- page/vendor/mp4-muxer.min.js
   masks/bg_48.png                <- assets/bg_48.png
   masks/bg_96.png                <- assets/bg_96.png
   masks/sparkle-2026-48.png      <- assets/sparkle-2026-48.png
   masks/sparkle-2026-96.png      <- assets/sparkle-2026-96.png
+
+The Veo templates are marked GENERATED in their header and were copied byte-for-byte
+from the MIT-licensed gemini-watermark-remover runtime that the extension itself vendors:
+  - https://github.com/GargantuaX/gemini-watermark-remover
 
 The reconstructed pipeline follows the algorithm described in the source
 comments of videoProcessor.js:

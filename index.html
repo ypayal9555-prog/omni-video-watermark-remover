@@ -11,9 +11,10 @@
     <header>
       <h1>Omni Video Watermark Remover</h1>
       <p class="sub">
-        Removes the <strong>Gemini / Omni 2026 sparkle</strong> watermark from videos.
-        Uses the exact calibrated 48&nbsp;px / 96&nbsp;px alpha maps and reverse-blend
-        pipeline. <strong>100% local</strong> &mdash; your video never leaves the browser.
+        Removes the visible <strong>Gemini / Omni diamond</strong> and the
+        <strong>Veo wordmark</strong> from MP4s by reversing the exact alpha blend.
+        Position, size and opacity are measured on your own frames.
+        <strong>100% local</strong> &mdash; the video never leaves the browser.
       </p>
     </header>
 
@@ -34,57 +35,59 @@
       </div>
 
       <div class="actions">
-        <button id="previewBtn" class="btn" type="button">Preview first frame</button>
+        <button id="previewBtn" class="btn" type="button">Preview frame</button>
+        <button id="detectBtn" class="btn" type="button">Detect watermark</button>
         <button id="cleanPreviewBtn" class="btn" type="button">Preview cleaned</button>
         <button id="runBtn" class="btn primary" type="button">Remove watermark</button>
       </div>
 
+      <p id="detectStatus" class="status" hidden></p>
+
       <div class="canvas-box" id="canvasBox" hidden>
         <div class="canvas-pair">
-          <div><canvas id="preview"></canvas><span class="muted small">Before</span></div>
+          <div><canvas id="preview"></canvas><span class="muted small">Before (box = detected mark)</span></div>
           <div><canvas id="cleanPreview"></canvas><span class="muted small">After (preview)</span></div>
         </div>
       </div>
 
       <details class="tune" id="tuneBox">
-        <summary>Fine-tune removal (if the watermark survives)</summary>
+        <summary>Engines &amp; fine-tuning</summary>
         <p class="muted small">
-          The engine auto-detects position and opacity. If a faint sparkle stays behind,
-          adjust these and click <strong>Apply settings</strong>, then run again.
+          Google stamps two different marks: the <strong>diamond</strong> (Gemini 3.5 / 2026
+          sparkle) and the <strong>Veo wordmark</strong>. Auto mode scores both on real frames
+          and picks the one that is actually there.
         </p>
 
         <div class="grid">
-          <label>Opacity mode
-            <select id="opacityMode">
-              <option value="auto">Auto (1.0 / 0.62)</option>
-              <option value="1">Force 1.0</option>
-              <option value="0.62">Force 0.62</option>
-              <option value="custom">Custom</option>
+          <label>Watermark engine
+            <select id="engineMode">
+              <option value="auto">Auto-detect (recommended)</option>
+              <option value="diamond">Diamond only (Gemini / Omni 2026)</option>
+              <option value="veo">Veo wordmark only (Flow)</option>
             </select>
           </label>
-          <label>Custom opacity <span class="val" id="opacityCustomVal">0.80</span>
-            <input type="range" id="opacityCustom" min="0.1" max="1" step="0.01" value="0.8" />
+          <label>Removal strength <span class="val" id="strengthVal">1.00&times;</span>
+            <input type="range" id="strength" min="0.5" max="1.5" step="0.01" value="1" />
           </label>
-          <label>Mask size <span class="val" id="maskScaleVal">1.00&times;</span>
-            <input type="range" id="maskScale" min="0.5" max="3" step="0.01" value="1" />
-          </label>
-          <label>Base strength <span class="val" id="baseStrengthVal">1.00</span>
-            <input type="range" id="baseStrength" min="0.5" max="2" step="0.05" value="1" />
-          </label>
-          <label>Blend ceiling <span class="val" id="ceilingVal">0.99</span>
-            <input type="range" id="ceiling" min="0.8" max="1" step="0.01" value="0.99" />
+          <label>Residual cleanup <span class="val" id="cleanupVal">0.60</span>
+            <input type="range" id="cleanup" min="0" max="1" step="0.05" value="0.6" />
           </label>
         </div>
 
         <div class="grid pin-grid">
-          <label class="check"><input type="checkbox" id="pinPosition" /> Pin mask position</label>
-          <label>From right (px) <input type="number" id="posDx" min="0" value="222" /></label>
-          <label>From bottom (px) <input type="number" id="posDy" min="0" value="186" /></label>
+          <label class="check"><input type="checkbox" id="pinPosition" /> Pin position manually</label>
+          <label>Inset from right (px) <input type="number" id="posDx" min="0" value="96" /></label>
+          <label>Inset from bottom (px) <input type="number" id="posDy" min="0" value="96" /></label>
+          <label>Mark size (px) <input type="number" id="posSize" min="8" value="48" /></label>
         </div>
         <p class="muted small">
-          Tip: click <em>Preview first frame</em> above to fill in the default offsets for your video's resolution.
+          Detection fills these in for you. Only touch them if the box in the preview is in the
+          wrong place.
         </p>
-        <button id="detectBtn" class="btn" type="button">Auto-detect &amp; pin from first frame</button>
+
+        <div class="grid">
+          <label class="check"><input type="checkbox" id="forceRun" /> Run even if nothing is detected</label>
+        </div>
         <button id="applyBtn" class="btn" type="button">Apply settings</button>
         <span id="applyStatus" class="muted small"></span>
       </details>
@@ -128,8 +131,10 @@
 
   <script src="vendor/mp4box.all.min.js"></script>
   <script src="vendor/mp4-muxer.min.js"></script>
+  <script src="vendor/veoTextTemplates.js"></script>
   <script src="vendor/videoProcessor.js"></script>
-  <script src="vendor/watermarkEngine.js"></script>
+  <script src="vendor/veoTextEngine.js"></script>
+  <script src="js/detect.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Synthetic watermark test — ground truth</title>
+<style>
+  body { background:#12141a; color:#e8eaf0; font:14px system-ui, sans-serif; margin:0; padding:18px; }
+  h1 { font-size:18px; }
+  button { background:#2a2f3d; color:#e8eaf0; border:1px solid #3a4152; border-radius:6px; padding:7px 11px; cursor:pointer; margin:2px; }
+  button.primary { background:#0abab5; color:#04231f; border-color:#0abab5; font-weight:600; }
+  pre { background:#0b0d12; padding:10px; border-radius:6px; overflow:auto; max-height:340px; font-size:12px; }
+  .pair { display:flex; gap:12px; flex-wrap:wrap; margin-top:12px; }
+  .pair figure { margin:0; }
+  figcaption { font-size:12px; color:#98a0b3; margin-top:4px; }
+</style>
+</head>
+<body>
+<h1>Synthetic watermark test</h1>
+<p>Builds a clip with a known watermark, runs the same detect → candidate → engine path the app uses, and measures what is left.</p>
+<div>
+  <button id="cA" class="primary">a) Diamond 48 / inset 96</button>
+  <button id="cB">b) Diamond, legacy fixed-offset path</button>
+  <button id="cC">c) Diamond 44 / inset 144</button>
+  <button id="cD">d) Diamond 48 / inset 32</button>
+  <button id="cE">e) Diamond, faint (opacity 0.62)</button>
+  <button id="cF">f) Veo wordmark 68×30</button>
+  <button id="cG">g) Veo wordmark 23×10</button>
+  <button id="cH">h) Portrait 720×1280, diamond</button>
+  <button id="cI">i) 1080p, diamond 96 / inset 222</button>
+</div>
+<pre id="log">idle</pre>
+<div class="pair" id="shots"></div>
+
+<script src="../vendor/mp4box.all.min.js"></script>
+<script src="../vendor/mp4-muxer.min.js"></script>
+<script src="../vendor/veoTextTemplates.js"></script>
+<script src="../vendor/videoProcessor.js"></script>
+<script src="../vendor/veoTextEngine.js"></script>
+<script src="../js/detect.js"></script>
+<script>
+(function () {
+  "use strict";
+  const FPS = 30, N = 60, BITRATE = 20000000;
+  let W = 1280, H = 720;
+
+  const logEl = document.getElementById("log");
+  const lines = [];
+  function log(...a) {
+    const s = a.map((v) => (typeof v === "string" ? v : JSON.stringify(v))).join(" ");
+    lines.push(s);
+    logEl.textContent = lines.join("\n");
+    console.log("[synth]", s);
+  }
+
+  // Smooth but detailed background: wide gradients, moving blobs and coarse
+  // bars. Deliberately low-noise so the measurement is dominated by the
+  // watermark, not by H.264 noise (a noisy background swamps the residual).
+  function drawBackground(ctx, i) {
+    const img = ctx.createImageData(W, H);
+    const d = img.data;
+    const t = i / FPS;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const o = (y * W + x) * 4;
+        const wave = 26 * Math.sin((x + 90 * t) / 140) + 20 * Math.sin((y - 60 * t) / 95);
+        const cx = W * 0.6 + W * 0.23 * Math.sin(t * 0.8);
+        const cy = H * 0.39 + H * 0.19 * Math.cos(t * 1.0);
+        const dist = Math.hypot(x - cx, y - cy);
+        const radius = Math.min(W, H) * 0.36;
+        const blob = dist < radius ? 150 * Math.pow(1 - dist / radius, 2) : 0;
+        const bars = (x > W * 0.09 && x < W * 0.33 && ((y + i * 3) % 60 < 18)) ? 70 : 0;
+        const base = 52 + (x / W) * 36 + (y / H) * 18 + wave + blob + bars;
+        d[o]     = Math.max(0, Math.min(255, base + 10 * Math.sin(t + y / 200)));
+        d[o + 1] = Math.max(0, Math.min(255, base + 4 * Math.cos(t * 0.6 + x / 150)));
+        d[o + 2] = Math.max(0, Math.min(255, base * 0.9 + 26));
+        d[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  async function loadAlpha(url, size) {
+    const bmp = await createImageBitmap(await (await fetch(url)).blob());
+    const cvs = new OffscreenCanvas(size, size);
+    const ctx = cvs.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(bmp, 0, 0, size, size);
+    const px = ctx.getImageData(0, 0, size, size).data;
+    const values = new Float32Array(size * size);
+    for (let i = 0; i < values.length; i++) {
+      values[i] = Math.max(px[4 * i], px[4 * i + 1], px[4 * i + 2]) / 255;
+    }
+    bmp.close();
+    return { values, side: size };
+  }
+
+  async function encodeClip(render) {
+    const muxer = new Mp4Muxer.Muxer({
+      target: new Mp4Muxer.ArrayBufferTarget(),
+      fastStart: "in-memory",
+      firstTimestampBehavior: "offset",
+      video: { codec: "avc", width: W, height: H },
+    });
+    let err = null;
+    const encoder = new VideoEncoder({
+      output: (c, m) => muxer.addVideoChunk(c, m),
+      error: (e) => { err = e; },
+    });
+    encoder.configure({
+      codec: "avc1.640028", width: W, height: H, bitrate: BITRATE,
+      bitrateMode: "variable", framerate: FPS, avc: { format: "avc" },
+    });
+    const cvs = new OffscreenCanvas(W, H);
+    const ctx = cvs.getContext("2d", { willReadFrequently: true });
+    for (let i = 0; i < N; i++) {
+      drawBackground(ctx, i);
+      const img = ctx.getImageData(0, 0, W, H);
+      render(img, i);
+      ctx.putImageData(img, 0, 0);
+      const vf = new VideoFrame(img.data.buffer, {
+        format: "RGBA", codedWidth: W, codedHeight: H,
+        timestamp: Math.round((i * 1e6) / FPS), duration: Math.round(1e6 / FPS),
+      });
+      encoder.encode(vf, { keyFrame: i % FPS === 0 });
+      vf.close();
+      if (i % 8 === 7) await new Promise((r) => setTimeout(r, 0));
+    }
+    await encoder.flush();
+    encoder.close();
+    if (err) throw err;
+    muxer.finalize();
+    return new Blob([muxer.target.buffer], { type: "video/mp4" });
+  }
+
+  function mae(a, b, x0, y0, x1, y1) {
+    let sum = 0, n = 0;
+    for (let y = Math.max(0, y0); y < Math.min(H, y1); y++) {
+      for (let x = Math.max(0, x0); x < Math.min(W, x1); x++) {
+        const o = (y * W + x) * 4;
+        for (let ch = 0; ch < 3; ch++) sum += Math.abs(a.data[o + ch] - b.data[o + ch]);
+        n += 3;
+      }
+    }
+    return n ? sum / n : 0;
+  }
+
+  async function frames(buf, indices) {
+    const res = await window.__decodeVideoFrames(buf, indices.map((i) => (i + 0.5) / N));
+    const byIdx = new Map();
+    res.forEach((r) => byIdx.set(Math.round(r.fraction * N - 0.5), r.imageData));
+    return indices.map((i) => byIdx.get(i));
+  }
+
+  function median(vals) {
+    const s = vals.slice().sort((a, b) => a - b);
+    return s[s.length >> 1];
+  }
+
+  // Mean |pixel − surrounding ring| inside the mark's own alpha shape. This is
+  // how visible the mark is, independent of encoder noise or frame alignment.
+  function contrast(img, x0, y0, w, h, alpha) {
+    const ring = [];
+    for (let dy = -10; dy < h + 10; dy++) {
+      for (let dx = -10; dx < w + 10; dx++) {
+        if (dx >= 0 && dx < w && dy >= 0 && dy < h) continue;
+        const x = x0 + dx, y = y0 + dy;
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        const o = (y * W + x) * 4;
+        ring.push(0.2126 * img.data[o] + 0.7152 * img.data[o + 1] + 0.0722 * img.data[o + 2]);
+      }
+    }
+    const med = median(ring);
+    let sum = 0, n = 0;
+    for (let r = 0; r < h; r++) {
+      for (let c = 0; c < w; c++) {
+        const a = alpha[r * w + c];
+        if (a < 0.2) continue;
+        const o = ((y0 + r) * W + (x0 + c)) * 4;
+        const l = 0.2126 * img.data[o] + 0.7152 * img.data[o + 1] + 0.0722 * img.data[o + 2];
+        sum += Math.abs(l - med) * a;
+        n += a;
+      }
+    }
+    return n ? sum / n : 0;
+  }
+
+  async function cropDataUrl(img, x0, y0, w, h, scale) {
+    const cvs = new OffscreenCanvas(w * scale, h * scale);
+    const ctx = cvs.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+    const full = new OffscreenCanvas(W, H);
+    full.getContext("2d").putImageData(img, 0, 0);
+    ctx.drawImage(full, x0, y0, w, h, 0, 0, w * scale, h * scale);
+    const blob = await cvs.convertToBlob({ type: "image/png" });
+    return await new Promise((res) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.readAsDataURL(blob);
+    });
+  }
+
+  const shots = [];
+  function showShot(title, dataUrl) {
+    shots.push({ title, dataUrl });
+    const fig = document.createElement("figure");
+    const im = document.createElement("img");
+    im.src = dataUrl;
+    im.style.cssText = "border:1px solid #333a4a;border-radius:4px;image-rendering:pixelated;max-width:520px";
+    const cap = document.createElement("figcaption");
+    cap.textContent = title;
+    fig.append(im, cap);
+    document.getElementById("shots").append(fig);
+  }
+
+  // Compare the engine output against the clean reference at the frame whose
+  // background matches best (H.264 can shift the sample timeline by a frame).
+  async function compare(clean, marked, outBuf, box, alpha, pad, scale) {
+    document.getElementById("shots").textContent = "";
+    const idxs = [28, 29, 30, 31, 32];
+    const cleanFrames = await frames(await clean.arrayBuffer(), [30]);
+    const cleanFrame = cleanFrames[0];
+    const outFrames = await frames(outBuf, idxs);
+
+    const ctrl = [Math.round(W * 0.06), Math.round(H * 0.11), Math.round(W * 0.06) + 200, Math.round(H * 0.11) + 140];
+    let bestO = 0, bestOv = Infinity;
+    for (let k = 0; k < idxs.length; k++) {
+      const vo = mae(outFrames[k], cleanFrame, ...ctrl);
+      if (vo < bestOv) { bestOv = vo; bestO = k; }
+    }
+    const outFrame = outFrames[bestO];
+
+    const mx0 = Math.max(0, box.x - 6), my0 = Math.max(0, box.y - 6);
+    const mx1 = Math.min(W, box.x + box.w + 6), my1 = Math.min(H, box.y + box.h + 6);
+    const after = mae(outFrame, cleanFrame, mx0, my0, mx1, my1);
+    const floor = bestOv;
+
+    const cAfter = contrast(outFrame, box.x, box.y, box.w, box.h, alpha);
+    const cClean = contrast(cleanFrame, box.x, box.y, box.w, box.h, alpha);
+
+    let before = null, cBefore = null, bestM = 0, bestMv = null;
+    if (marked) {
+      const markedFrames = await frames(await marked.arrayBuffer(), idxs);
+      bestMv = Infinity;
+      for (let k = 0; k < idxs.length; k++) {
+        const vm = mae(markedFrames[k], cleanFrame, ...ctrl);
+        if (vm < bestMv) { bestMv = vm; bestM = k; }
+      }
+      const markedFrame = markedFrames[bestM];
+      before = mae(markedFrame, cleanFrame, mx0, my0, mx1, my1);
+      cBefore = contrast(markedFrame, box.x, box.y, box.w, box.h, alpha);
+      const p = Math.max(0, box.x - pad), q = Math.max(0, box.y - pad);
+      const pw = Math.min(W - p, box.w + pad * 2), ph = Math.min(H - q, box.h + pad * 2);
+      showShot("watermarked input", await cropDataUrl(markedFrame, p, q, pw, ph, scale));
+      log(`frame match: marked idx ${idxs[bestM]} (${bestMv.toFixed(2)}), out idx ${idxs[bestO]} (${bestOv.toFixed(2)})`);
+      log(`MAE in mark box: before=${before.toFixed(2)} after=${after.toFixed(2)} | re-encode floor=${floor.toFixed(2)}`);
+      log(`mark contrast: clean ref=${cClean.toFixed(2)} marked=${cBefore.toFixed(2)} after=${cAfter.toFixed(2)} ` +
+          `(${(100 * (cAfter - cClean) / Math.max(0.01, cBefore - cClean)).toFixed(1)}% of the mark left)`);
+    } else {
+      log(`out idx ${idxs[bestO]} (${bestOv.toFixed(2)}) | MAE in mark box=${after.toFixed(2)}`);
+      log(`mark contrast: clean ref=${cClean.toFixed(2)} after=${cAfter.toFixed(2)}`);
+    }
+
+    const cx = Math.max(0, box.x - pad), cy = Math.max(0, box.y - pad);
+    const cw = Math.min(W - cx, box.w + pad * 2), ch = Math.min(H - cy, box.h + pad * 2);
+    showShot("clean (reference)", await cropDataUrl(cleanFrame, cx, cy, cw, ch, scale));
+    showShot("engine output", await cropDataUrl(outFrame, cx, cy, cw, ch, scale));
+    return { before, after, floor, cBefore, cAfter, cClean };
+  }
+
+  // ---------- diamond ----------
+
+  // Build the clean + watermarked clips for a case. Deterministic, so a clip
+  // exported from here is reproducible later for the UI end-to-end check.
+  async function buildStar(opts, onlyClean) {
+    opts = opts || {};
+    W = opts.w || 1280; H = opts.h || 720;
+    const side = opts.side || 48;
+    const margin = opts.margin != null ? opts.margin : 96;
+    const opacity = opts.opacity != null ? opts.opacity : 1;
+    const x0 = W - margin - side;
+    const y0 = H - margin - side;
+    const map = await loadAlpha(side >= 64 ? "../masks/sparkle-2026-96.png" : "../masks/sparkle-2026-48.png", side);
+    log(`--- diamond ${W}x${H} side=${side} inset=${margin} opacity=${opacity} legacy=${!!opts.legacy}`);
+
+    const clean = await encodeClip(() => {});
+    const marked = onlyClean ? null : await encodeClip((img) => {
+      const d = img.data;
+      for (let r = 0; r < side; r++) {
+        for (let c = 0; c < side; c++) {
+          const a = map.values[r * side + c] * opacity;
+          if (a <= 0.001) continue;
+          const o = ((y0 + r) * W + (x0 + c)) * 4;
+          for (let ch = 0; ch < 3; ch++) d[o + ch] = Math.round(d[o + ch] * (1 - a) + 255 * a);
+        }
+      }
+    });
+
+    const alpha = new Float32Array(side * side);
+    for (let i = 0; i < alpha.length; i++) alpha[i] = map.values[i] * opacity;
+    return { clean, marked, box: { x: x0, y: y0, w: side, h: side }, alpha, side, opacity, opts };
+  }
+
+  async function runStar(opts) {
+    const b = await buildStar(opts);
+    const markBuf = await b.marked.arrayBuffer();
+
+    const maps = await window.__erasioDetect.loadMaps();
+    const tDet = performance.now();
+    const det = await window.__erasioDetect.detect(markBuf, { maps });
+    log(`detect ${((performance.now() - tDet) / 1000).toFixed(1)}s: ` + JSON.stringify({
+      diamond: det.diamond && {
+        ncc: +det.diamond.ncc.toFixed(3), x: det.diamond.x, y: det.diamond.y,
+        side: det.diamond.side, alpha: det.diamond.alpha != null ? +det.diamond.alpha.toFixed(3) : null,
+        gain: det.diamond.gain != null ? +det.diamond.gain.toFixed(3) : null,
+        perSize: det.diamond.perSize,
+      },
+      veo: det.veo && +det.veo.ncc.toFixed(3),
+      chosen: det.chosen,
+    }));
+
+    const t0 = performance.now();
+    let blob;
+    if (opts && opts.legacy) {
+      blob = await window.__purifyVideo(markBuf, { onProgress: () => {} });
+    } else {
+      const cand = window.__erasioDetect.buildDiamondCandidate(det.diamond, W, H, { maps, cleanup: 0.6 });
+      log(`candidate pos=(${cand.x},${cand.y}) box=${cand.alphaMap.width}px gain=${cand.baseStrength.toFixed(3)}`);
+      blob = await window.__purifyVideo(markBuf, { detector: () => cand, onProgress: () => {} });
+    }
+    const outBuf = await blob.arrayBuffer();
+    log(`engine ${((performance.now() - t0) / 1000).toFixed(1)}s -> ${(outBuf.byteLength / 1024).toFixed(0)}KB`);
+    return compare(b.clean, b.marked, outBuf, b.box, b.alpha, 24, 6);
+  }
+
+  // ---------- Veo ----------
+  async function buildVeo(opts, onlyClean) {
+    opts = opts || {};
+    W = opts.w || 1280; H = opts.h || 720;
+    const templates = window.__erasioVeoTextTemplates.getTemplates();
+    const t = templates.find((x) => x.id === (opts.template || "veo-text-68x30")) || templates[0];
+    const peak = opts.peak != null ? opts.peak : 0.52;
+    const x0 = W - t.marginRight - t.width;
+    const y0 = H - t.marginBottom - t.height;
+    log(`--- veo ${W}x${H} ${t.id} nominal pos=(${x0},${y0}) peakAlpha=${peak}`);
+
+    const clean = await encodeClip(() => {});
+    const marked = onlyClean ? null : await encodeClip((img) => {
+      const d = img.data;
+      for (let r = 0; r < t.height; r++) {
+        for (let c = 0; c < t.width; c++) {
+          const a = t.detectorMap[r * t.width + c] * peak;
+          if (a <= 0.001) continue;
+          const o = ((y0 + r) * W + (x0 + c)) * 4;
+          for (let ch = 0; ch < 3; ch++) d[o + ch] = Math.round(d[o + ch] * (1 - a) + 255 * a);
+        }
+      }
+    });
+
+    const alpha = new Float32Array(t.width * t.height);
+    for (let i = 0; i < alpha.length; i++) alpha[i] = t.detectorMap[i] * peak;
+    return { clean, marked, box: { x: x0, y: y0, w: t.width, h: t.height }, alpha, template: t, peak, opts };
+  }
+
+  async function runVeo(opts) {
+    const b = await buildVeo(opts);
+    const markBuf = await b.marked.arrayBuffer();
+
+    const maps = await window.__erasioDetect.loadMaps();
+    const det = await window.__erasioDetect.detect(markBuf, { maps });
+    log("detect: " + JSON.stringify({
+      diamond: det.diamond && +det.diamond.ncc.toFixed(3),
+      veo: det.veo && { ncc: +det.veo.ncc.toFixed(3), x: det.veo.x, y: det.veo.y, id: det.veo.templateId },
+      chosen: det.chosen,
+    }));
+
+    const t0 = performance.now();
+    const blob = await window.__purifyVeoVideo(markBuf, { onProgress: () => {} });
+    const outBuf = await blob.arrayBuffer();
+    log(`engine ${((performance.now() - t0) / 1000).toFixed(1)}s -> ${(outBuf.byteLength / 1024).toFixed(0)}KB`);
+    return compare(b.clean, b.marked, outBuf, b.box, b.alpha, 26, 6);
+  }
+
+  // ---------- case table, export + verify ----------
+
+  const specs = {
+    a: { kind: "star", opts: { side: 48, margin: 96 } },
+    b: { kind: "star", opts: { side: 48, margin: 96, legacy: true } },
+    c: { kind: "star", opts: { side: 44, margin: 144 } },
+    d: { kind: "star", opts: { side: 48, margin: 32 } },
+    e: { kind: "star", opts: { side: 48, margin: 96, opacity: 0.62 } },
+    f: { kind: "veo", opts: { template: "veo-text-68x30" } },
+    g: { kind: "veo", opts: { template: "veo-text-23x10", peak: 0.45 } },
+    h: { kind: "star", opts: { w: 720, h: 1280, side: 48, margin: 96 } },
+    i: { kind: "star", opts: { w: 1920, h: 1080, side: 96, margin: 222 } },
+  };
+  const cases = {};
+  Object.keys(specs).forEach((k) => {
+    cases[k] = () => (specs[k].kind === "veo" ? runVeo(specs[k].opts) : runStar(specs[k].opts));
+  });
+  const buttons = { cA: "a", cB: "b", cC: "c", cD: "d", cE: "e", cF: "f", cG: "g", cH: "h", cI: "i" };
+
+  function download(blob, name) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 10000);
+  }
+
+  // Write the clean + watermarked clips to disk (headless download folder) so
+  // the real UI can be driven with a clip that has ground truth.
+  async function exportCase(k) {
+    const spec = specs[k];
+    const b = spec.kind === "veo" ? await buildVeo(spec.opts) : await buildStar(spec.opts);
+    download(b.clean, `clean-${k}.mp4`);
+    download(b.marked, `marked-${k}.mp4`);
+    return { clean: b.clean.size, marked: b.marked.size, box: b.box };
+  }
+
+  // Score an MP4 produced by the real UI against a freshly built clean
+  // reference for the same case.
+  async function verifyOutput(url, k) {
+    const spec = specs[k] || specs.a;
+    const b = spec.kind === "veo" ? await buildVeo(spec.opts, true) : await buildStar(spec.opts, true);
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`fetch ${url}: HTTP ${res.status}`);
+    const outBuf = await res.arrayBuffer();
+    log(`verifying ${url} (${(outBuf.byteLength / 1024).toFixed(0)}KB) against case ${k}`);
+    return compare(b.clean, null, outBuf, b.box, b.alpha, 24, 6);
+  }
+
+  window.__synth = {
+    log,
+    ready: true,
+    cases,
+    specs,
+    shots,
+    run: (k) => {
+      lines.length = 0;
+      shots.length = 0;
+      return cases[k]().then((r) => ({ ok: true, ...r, shots }))
+        .catch((e) => { log("ERROR " + (e && e.stack || e)); return { ok: false, error: String(e) }; });
+    },
+    exportCase,
+    verifyOutput: (url, k) => {
+      lines.length = 0;
+      shots.length = 0;
+      return verifyOutput(url, k).then((r) => ({ ok: true, ...r, shots }))
+        .catch((e) => { log("ERROR " + (e && e.stack || e)); return { ok: false, error: String(e) }; });
+    },
+  };
+  Object.keys(buttons).forEach((id) => {
+    document.getElementById(id).onclick = () => window.__synth.run(buttons[id]);
+  });
+  log("ready");
+})();
+</script>
+</body>
+</html>
