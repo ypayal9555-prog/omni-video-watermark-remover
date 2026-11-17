@@ -10,6 +10,13 @@
     fileSize: $("fileSize"),
     fileDims: $("fileDims"),
     resetBtn: $("resetBtn"),
+    batchCard: $("batchCard"),
+    batchList: $("batchList"),
+    batchStatus: $("batchStatus"),
+    batchError: $("batchError"),
+    batchOverall: $("batchOverall"),
+    batchDownloadAll: $("batchDownloadAll"),
+    batchClear: $("batchClear"),
     previewBtn: $("previewBtn"),
     detectBtn: $("detectBtn"),
     cleanPreviewBtn: $("cleanPreviewBtn"),
@@ -63,6 +70,9 @@
   let busy = false;
   let previewToken = 0;   // cancels an auto-preview when a new file is loaded
   let detection = null;   // cached __erasioDetect.detect() result for this file
+  let batchItems = [];
+  let batchRunning = false;
+  let batchZipUrl = null;
   let newMaps = null;
 
   // Erasio's shipped video defaults (Object.freeze `Ru` in the side panel).
@@ -568,8 +578,20 @@
     if (stage) el.engineLog.textContent = "engine stage: " + stage;
   }
 
+  function selectEngine(d) {
+    const mode = el.engineMode.value;
+    const chosen = d ? d.chosen : null;
+    const useVeo = mode === "veo" || (mode === "auto" && chosen === "veo");
+    const sparkleRequested = mode === "old" || mode === "new" ||
+      (mode === "auto" && chosen === "diamond");
+    return {
+      useVeo,
+      useSparkle: !useVeo && (sparkleRequested || el.pinPosition.checked || el.forceRun.checked),
+    };
+  }
+
   async function run() {
-    if (!currentBuffer || busy) return;
+    if (!currentBuffer || busy || batchRunning) return;
     busy = true;
     clearError();
     el.result.hidden = true;
@@ -591,13 +613,7 @@
         }
       }
 
-      const mode = el.engineMode.value;
-      const chosen = detection ? detection.chosen : null;
-      const useVeo = mode === "veo" || (mode === "auto" && chosen === "veo");
-      const sparkleRequested = mode === "old" || mode === "new" ||
-        (mode === "auto" && chosen === "diamond");
-      const useSparkle = !useVeo &&
-        (sparkleRequested || el.pinPosition.checked || el.forceRun.checked);
+      const { useVeo, useSparkle } = selectEngine(detection);
 
       if (!useVeo && !useSparkle) {
         throw new Error("no watermark detected — nothing was re-encoded. Use Preview " +
@@ -667,6 +683,360 @@
     }
   }
 
+  // ---------- bulk processing ----------
+
+  const CRC_TABLE = (function () {
+    const table = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      table[n] = c >>> 0;
+    }
+    return table;
+  })();
+
+  function crc32(bytes) {
+    let c = 0xffffffff;
+    for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  }
+
+  // Minimal ZIP writer (stored, no compression) so no extra vendor library is needed.
+  function buildZip(entries) {
+    const enc = new TextEncoder();
+    const now = new Date();
+    const time = ((now.getHours() & 31) << 11) | ((now.getMinutes() & 63) << 5) | ((now.getSeconds() >> 1) & 31);
+    const date = (((now.getFullYear() - 1980) & 127) << 9) | (((now.getMonth() + 1) & 15) << 5) | (now.getDate() & 31);
+    const parts = [];
+    const central = [];
+    let offset = 0;
+
+    for (const entry of entries) {
+      const name = enc.encode(entry.name);
+      const data = new Uint8Array(entry.data);
+      const crc = crc32(data);
+
+      const local = new Uint8Array(30 + name.length);
+      const lv = new DataView(local.buffer);
+      lv.setUint32(0, 0x04034b50, true);
+      lv.setUint16(4, 20, true);       // version needed
+      lv.setUint16(6, 0x0800, true);   // UTF-8 names
+      lv.setUint16(8, 0, true);        // stored
+      lv.setUint16(10, time, true);
+      lv.setUint16(12, date, true);
+      lv.setUint32(14, crc, true);
+      lv.setUint32(18, data.length, true);
+      lv.setUint32(22, data.length, true);
+      lv.setUint16(26, name.length, true);
+      lv.setUint16(28, 0, true);
+      local.set(name, 30);
+      parts.push(local, data);
+
+      const cd = new Uint8Array(46 + name.length);
+      const cv = new DataView(cd.buffer);
+      cv.setUint32(0, 0x02014b50, true);
+      cv.setUint16(4, 20, true);
+      cv.setUint16(6, 20, true);
+      cv.setUint16(8, 0x0800, true);
+      cv.setUint16(10, 0, true);
+      cv.setUint16(12, time, true);
+      cv.setUint16(14, date, true);
+      cv.setUint32(16, crc, true);
+      cv.setUint32(20, data.length, true);
+      cv.setUint32(24, data.length, true);
+      cv.setUint16(28, name.length, true);
+      cv.setUint16(30, 0, true);
+      cv.setUint16(32, 0, true);
+      cv.setUint16(34, 0, true);
+      cv.setUint16(36, 0, true);
+      cv.setUint32(38, 0, true);
+      cv.setUint32(42, offset, true);
+      cd.set(name, 46);
+      central.push(cd);
+
+      offset += local.length + data.length;
+    }
+
+    const cdSize = central.reduce((sum, item) => sum + item.length, 0);
+    const eocd = new Uint8Array(22);
+    const ev = new DataView(eocd.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(4, 0, true);
+    ev.setUint16(6, 0, true);
+    ev.setUint16(8, entries.length, true);
+    ev.setUint16(10, entries.length, true);
+    ev.setUint32(12, cdSize, true);
+    ev.setUint32(16, offset, true);
+    ev.setUint16(20, 0, true);
+
+    return new Blob([...parts, ...central, eocd], { type: "application/zip" });
+  }
+
+  function showBatchError(message) {
+    el.batchError.textContent = message || "";
+    el.batchError.hidden = !message;
+  }
+
+  function outputName(item) {
+    return item.name.replace(/\.[^.]+$/, "") + "-nowatermark.mp4";
+  }
+
+  function acceptFiles(files) {
+    const list = Array.from(files || []);
+    if (!list.length) return;
+    const videos = list.filter((f) => /\.mp4$/i.test(f.name) || f.type === "video/mp4");
+    showBatchError(videos.length === list.length ? "" :
+      "Skipped " + (list.length - videos.length) + " non-MP4 file(s) — bulk mode accepts MP4 only.");
+    if (!videos.length) return;
+    if (videos.length === 1 && !batchItems.length && !batchRunning) {
+      void acceptFile(videos[0]); // normal single-file flow
+      return;
+    }
+    addBatchFiles(videos);
+  }
+
+  function addBatchFiles(files) {
+    for (const file of files) {
+      batchItems.push({
+        file, name: file.name, size: file.size,
+        status: "queued", statusText: null, blob: null, url: null, error: null,
+      });
+    }
+    resetUI(); // hide the single-file editor and its stale preview
+    el.batchCard.hidden = false;
+    showBatchError("");
+    renderBatch();
+    updateBatchSummary();
+    if (!batchRunning) void runBatch();
+  }
+
+  function renderBatch() {
+    el.batchList.replaceChildren();
+    batchItems.forEach((item) => {
+      const row = document.createElement("li");
+      row.className = "batch-row " + item.status;
+
+      const icon = document.createElement("span");
+      icon.className = "batch-icon";
+      icon.textContent = "MP4";
+
+      const info = document.createElement("div");
+      info.className = "batch-info";
+      const name = document.createElement("strong");
+      name.textContent = item.name;
+      name.title = item.name;
+      const sub = document.createElement("span");
+      sub.className = "batch-sub";
+      const status = document.createElement("span");
+      status.className = "batch-status " + item.status;
+      status.textContent = item.statusText ||
+        ({ queued: "Queued", working: "Working", done: "Done", error: "Failed" })[item.status];
+      const size = document.createElement("span");
+      size.textContent = formatBytes(item.size);
+      sub.append(status, document.createTextNode("·"), size);
+      const barBox = document.createElement("div");
+      barBox.className = "batch-bar";
+      barBox.hidden = item.status !== "working";
+      const barFill = document.createElement("div");
+      barBox.appendChild(barFill);
+      info.append(name, sub, barBox);
+
+      const link = document.createElement("a");
+      link.className = "btn sm batch-dl";
+      link.textContent = "Download";
+      link.download = outputName(item);
+      link.hidden = item.status !== "done" || !item.url;
+      if (item.url) link.href = item.url;
+
+      row.append(icon, info, link);
+      el.batchList.appendChild(row);
+      item.rowEl = row;
+      item.statusEl = status;
+      item.barBox = barBox;
+      item.barFill = barFill;
+      item.linkEl = link;
+    });
+  }
+
+  function setRowStatus(item, status, text) {
+    item.status = status;
+    item.statusText = text || null;
+    if (item.rowEl) {
+      item.rowEl.className = "batch-row " + status;
+      item.statusEl.className = "batch-status " + status;
+      item.statusEl.textContent = statusLabel(item);
+      if (status === "working") item.barBox.hidden = false;
+    }
+    updateBatchSummary();
+  }
+
+  function statusLabel(item) {
+    return item.statusText ||
+      ({ queued: "Queued", working: "Working", done: "Done", error: "Failed" })[item.status];
+  }
+
+  function setRowProgress(item, ratio) {
+    if (!item.barBox) return;
+    item.barBox.hidden = false;
+    item.barFill.style.width = Math.round(Math.max(0, Math.min(1, ratio || 0)) * 100) + "%";
+  }
+
+  function updateBatchSummary() {
+    if (!batchItems.length) {
+      el.batchStatus.textContent = "No files queued.";
+      el.batchOverall.style.width = "0%";
+      el.batchDownloadAll.disabled = true;
+      el.batchClear.disabled = false;
+      return;
+    }
+    const total = batchItems.length;
+    const done = batchItems.filter((i) => i.status === "done").length;
+    const failed = batchItems.filter((i) => i.status === "error").length;
+    const active = batchItems.find((i) => i.status === "working");
+    el.batchOverall.style.width = Math.round(((done + failed) / total) * 100) + "%";
+    el.batchDownloadAll.disabled = done === 0;
+    el.batchClear.disabled = batchRunning;
+    el.batchStatus.textContent = active
+      ? `Processing ${batchItems.indexOf(active) + 1} of ${total}: ${active.name}`
+      : batchRunning
+        ? `Starting next file… (${done + failed}/${total} finished)`
+        : `Finished — ${done} cleaned, ${failed} failed out of ${total}.`;
+  }
+
+  async function processBatchItem(item) {
+    setRowStatus(item, "working", "Reading…");
+    setRowProgress(item, 0);
+    try {
+      readSettings();
+      const buffer = await item.file.arrayBuffer();
+      const frame = await window.__decodeVideoFrame(buffer, 0.05);
+      const width = frame.width, height = frame.height;
+
+      setRowStatus(item, "working", "Detecting…");
+      setRowProgress(item, 0.08);
+      const d = await window.__erasioDetect.detect(buffer, {
+        family: el.engineMode.value === "veo" ? "auto" : el.engineMode.value,
+        settings: {
+          maskScale: 1,
+          baseStrength: Number(el.strength.value),
+          edgeMode: el.edgeMode.value,
+          edgeStrength: Number(el.cleanup.value),
+        },
+        onProgress: (r) => {
+          setRowProgress(item, 0.08 + (r || 0) * 0.22);
+          setRowStatus(item, "working", `Detecting… ${Math.round((r || 0) * 100)}%`);
+        },
+      });
+      item.detection = d;
+      detection = d; // applyEngineSettings() uses the cached detection for drifted marks
+
+      const { useVeo, useSparkle } = selectEngine(d);
+      if (!useVeo && !useSparkle) throw new Error("no watermark detected — nothing was re-encoded");
+
+      const onEngineProgress = ({ stage, ratio }) => {
+        setRowProgress(item, 0.3 + (ratio || 0) * 0.7);
+        setRowStatus(item, "working", (STAGE_LABELS[stage] || stage || "Processing").replace("…", ""));
+      };
+
+      let blob;
+      if (useVeo) {
+        try {
+          blob = await window.__purifyVeoVideo(buffer, { onProgress: onEngineProgress });
+        } catch (err) {
+          if (err && err.code === "ERASIO_NO_WATERMARK") throw new Error("Veo wordmark not found in this clip");
+          throw err;
+        }
+      } else {
+        const info = applyEngineSettings(width, height);
+        await publishConfig();
+        dbg(`batch ${item.name}: family=${info.family}` +
+          (info.box ? ` box=${info.box.w}px at ${info.box.x},${info.box.y}` : " offsets"));
+        blob = await window.__purifyVideo(buffer, { onProgress: onEngineProgress });
+      }
+
+      item.blob = blob;
+      item.url = URL.createObjectURL(blob);
+      setRowProgress(item, 1);
+      setRowStatus(item, "done", "Done · " + formatBytes(blob.size));
+      if (item.linkEl) {
+        item.linkEl.hidden = false;
+        item.linkEl.href = item.url;
+        item.linkEl.download = outputName(item);
+      }
+    } catch (err) {
+      const msg = err && err.message ? err.message : String(err);
+      item.error = msg;
+      setRowStatus(item, "error", msg.length > 90 ? msg.slice(0, 90) + "…" : msg);
+      dbg(`batch ${item.name} FAILED: ${msg}`);
+    }
+  }
+
+  async function runBatch() {
+    if (batchRunning) return;
+    batchRunning = true;
+    updateBatchSummary();
+    try {
+      while (true) {
+        const item = batchItems.find((i) => i.status === "queued");
+        if (!item) break;
+        await processBatchItem(item);
+      }
+    } finally {
+      batchRunning = false;
+      updateBatchSummary();
+    }
+  }
+
+  function clearBatch() {
+    if (batchRunning) return;
+    for (const item of batchItems) if (item.url) URL.revokeObjectURL(item.url);
+    if (batchZipUrl) {
+      URL.revokeObjectURL(batchZipUrl);
+      batchZipUrl = null;
+    }
+    batchItems = [];
+    el.batchList.replaceChildren();
+    el.batchCard.hidden = true;
+    el.batchOverall.style.width = "0%";
+    el.batchDownloadAll.disabled = true;
+    showBatchError("");
+    resetUI();
+  }
+
+  async function downloadAll() {
+    const items = batchItems.filter((i) => i.status === "done" && i.blob);
+    if (!items.length) return;
+    el.batchDownloadAll.disabled = true;
+    el.batchDownloadAll.textContent = "Building ZIP…";
+    try {
+      const entries = [];
+      const used = new Set();
+      for (const item of items) {
+        let name = outputName(item);
+        if (used.has(name)) {
+          const base = name.replace(/\.mp4$/i, "");
+          let n = 2;
+          while (used.has(name)) name = base + "-" + n++ + ".mp4";
+        }
+        used.add(name);
+        entries.push({ name, data: await item.blob.arrayBuffer() });
+      }
+      if (batchZipUrl) URL.revokeObjectURL(batchZipUrl);
+      batchZipUrl = URL.createObjectURL(buildZip(entries));
+      const a = document.createElement("a");
+      a.href = batchZipUrl;
+      a.download = "cleaned-videos.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err) {
+      showBatchError("Could not build ZIP: " + (err && err.message ? err.message : String(err)));
+    } finally {
+      el.batchDownloadAll.textContent = "Download all (.zip)";
+      updateBatchSummary();
+    }
+  }
+
   function bindEvents() {
     el.dropzone.addEventListener("click", () => el.file.click());
     el.dropzone.addEventListener("keydown", (e) => {
@@ -685,10 +1055,15 @@
       })
     );
     el.dropzone.addEventListener("drop", (e) => {
-      const file = e.dataTransfer && e.dataTransfer.files[0];
-      if (file) acceptFile(file);
+      const files = e.dataTransfer && e.dataTransfer.files;
+      if (files && files.length) acceptFiles(files);
     });
-    el.file.addEventListener("change", (e) => acceptFile(e.target.files[0]));
+    el.file.addEventListener("change", (e) => {
+      acceptFiles(e.target.files);
+      e.target.value = ""; // allow picking the same file(s) again
+    });
+    el.batchDownloadAll.addEventListener("click", downloadAll);
+    el.batchClear.addEventListener("click", clearBatch);
     el.resetBtn.addEventListener("click", resetUI);
     el.previewBtn.addEventListener("click", previewFrame);
     el.detectBtn.addEventListener("click", () => detectWatermark(false));

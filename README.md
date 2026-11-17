@@ -89,6 +89,8 @@ approximation of it.
 - Auto family/engine selection, or force one
 - 720p / 1080p, 16:9 and 9:16 — 1280×720, 720×1280, 1920×1080, 1080×1920
 - Detection box + cleaned-frame preview before committing to a full re-encode
+- **Bulk processing:** drop several MP4s at once → queue with per-file status and progress,
+  individual download links, or **Download all (.zip)**. More files can be dropped while it runs.
 - Manual pin (inset from the right/bottom edge + mark size) when auto-detect is unsure
 - Runs **100% in the browser** — no uploads, no server, no API keys
 
@@ -110,11 +112,17 @@ python -m http.server 8000
 ## Usage
 
 1. Open the page in Chrome or Edge (WebCodecs required).
-2. Drop an MP4, or click to browse.
-3. Click **Detect watermark** — the status line shows the family, Pearson r, position, size
-   and opacity; the box is drawn on the frame.
-4. Click **Preview cleaned** to check the single-frame result.
+2. Drop one MP4, or click to browse. The before/after slider appears automatically: first the
+   original frame, then the cleaned half once detection finishes.
+3. Optionally click **Detect watermark** — the status line shows the family, Pearson r, position,
+   size and opacity; the box is drawn on the frame.
+4. Click **Preview cleaned** to re-check the single-frame result.
 5. Click **Remove watermark**, then **Download clean MP4**.
+
+**Bulk:** drop two or more MP4s (or multi-select in the file picker) instead. A batch queue shows
+each file with its own progress and download link. Files are processed sequentially with the same
+Erasio calibration; **Download all (.zip)** collects every successful output. Failed files stay in
+the list with the reason, and do not stop the rest of the queue.
 
 ### If it is still visible
 
