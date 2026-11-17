@@ -20,6 +20,7 @@
     compare: $("compare"),
     compareRange: $("compareRange"),
     compareHint: $("compareHint"),
+    afterTag: $("afterTag"),
     detectStatus: $("detectStatus"),
     progressBox: $("progressBox"),
     stage: $("stage"),
@@ -60,6 +61,7 @@
   let resultUrl = null;
   let previewImage = null;
   let busy = false;
+  let previewToken = 0;   // cancels an auto-preview when a new file is loaded
   let detection = null;   // cached __erasioDetect.detect() result for this file
   let newMaps = null;
 
@@ -118,6 +120,7 @@
   }
 
   function resetUI() {
+    previewToken++;
     currentFile = null;
     currentBuffer = null;
     previewImage = null;
@@ -126,7 +129,9 @@
     el.fileCard.hidden = true;
     el.fileDims.hidden = true;
     el.canvasBox.hidden = true;
-    el.canvasBox.classList.remove("has-after");
+    el.canvasBox.classList.remove("has-after", "preview-working");
+    el.afterTag.textContent = "After";
+    el.afterTag.classList.remove("working");
     el.detectStatus.hidden = true;
     el.progressBox.hidden = true;
     el.result.hidden = true;
@@ -285,19 +290,26 @@
       return;
     }
     clearError();
+    const token = ++previewToken;
     currentFile = file;
     detection = null;
     previewImage = null;
     currentBuffer = await file.arrayBuffer();
+    if (token !== previewToken) return; // a newer file was selected meanwhile
     el.fileName.textContent = file.name;
     el.fileSize.textContent = formatBytes(file.size);
     el.fileDims.hidden = true;
     el.fileCard.hidden = false;
     el.canvasBox.hidden = true;
-    el.canvasBox.classList.remove("has-after");
+    el.canvasBox.classList.remove("has-after", "preview-working");
+    el.afterTag.textContent = "After";
+    el.afterTag.classList.remove("working");
     el.detectStatus.hidden = true;
     el.progressBox.hidden = true;
     el.result.hidden = true;
+    // Show the before frame immediately, then reveal the cleaned side once
+    // detection has located the mark — no button press needed.
+    void autoPreview(token);
   }
 
   // ---------- preview ----------
@@ -360,7 +372,7 @@
     return bits.join(" · ");
   }
 
-  async function detectWatermark(quiet) {
+  async function detectWatermark(quiet, token) {
     if (!currentBuffer) return null;
     clearError();
     if (!quiet) {
@@ -382,6 +394,7 @@
           if (!quiet) el.detectStatus.textContent = `Scanning frames… ${Math.round(r * 100)}%`;
         },
       });
+      if (token && token !== previewToken) return null; // a newer file was dropped
       detection = d;
       setDims(d.width, d.height);
       for (const note of d.notes || []) dbg("detect · " + note);
@@ -442,6 +455,79 @@
 
   // ---------- clean preview ----------
 
+  function endWorking() {
+    el.canvasBox.classList.remove("preview-working");
+    el.afterTag.textContent = "After";
+    el.afterTag.classList.remove("working");
+  }
+
+  // Paint the cleaned frame and turn the single frame into a before/after slider.
+  function showCleanPreview(candidate) {
+    const clone = new ImageData(new Uint8ClampedArray(previewImage.data), previewImage.width, previewImage.height);
+    const out = window.__erasioInpaintFrame(clone, candidate);
+
+    paintBefore(previewImage, candidateBox(candidate));
+    el.cleanPreview.width = out.width;
+    el.cleanPreview.height = out.height;
+    el.cleanPreview.getContext("2d").putImageData(out, 0, 0);
+
+    el.canvasBox.classList.add("has-after");
+    endWorking();
+    el.canvasBox.hidden = false;
+    setCompare(50);
+    el.compareHint.textContent = "Drag the handle to compare before and after.";
+    dbg(`preview clean: pos=(${candidate.x},${candidate.y}) box=${candidate.alphaMap.width}px ` +
+      `strength=${candidate.baseStrength.toFixed(2)} opacity=${candidate.opacity} ` +
+      `cleanup=${candidate.edgeCleanup ? candidate.edgeCleanup.strength : "off"}`);
+    return out;
+  }
+
+  // Runs automatically as soon as a file is dropped: show the original frame
+  // straight away, locate the mark, then reveal the cleaned half of the slider.
+  async function autoPreview(token) {
+    if (!currentBuffer) return;
+    try {
+      const frame = await window.__decodeVideoFrame(currentBuffer, 0.05);
+      if (token !== previewToken) return;
+      previewImage = frame.imageData;
+      setDims(frame.width, frame.height);
+      paintBefore(previewImage, null);
+
+      el.canvasBox.classList.add("preview-working");
+      el.afterTag.textContent = "Detecting…";
+      el.afterTag.classList.add("working");
+      el.compareHint.textContent = "Reading the video and locating the watermark…";
+
+      // Non-quiet so the user sees the scan progress and the result pill.
+      const d = await detectWatermark(false, token);
+      if (token !== previewToken) return;
+
+      if (!d && !el.pinPosition.checked) {
+        endWorking();
+        el.compareHint.textContent = "No watermark found — showing the original frame only.";
+        return;
+      }
+      if (d && d.chosen === "veo") {
+        endWorking();
+        el.compareHint.textContent = "Veo wordmark found — before/after preview is not available; run “Remove watermark”.";
+        return;
+      }
+
+      const candidate = await previewCandidate(previewImage);
+      if (token !== previewToken) return;
+      if (!candidate) {
+        endWorking();
+        el.compareHint.textContent = "Could not build the cleaned preview — run “Remove watermark” to check this clip.";
+        return;
+      }
+      showCleanPreview(candidate);
+    } catch (err) {
+      if (token !== previewToken) return;
+      endWorking();
+      showError("Preview failed: " + (err && err.message ? err.message : String(err)));
+    }
+  }
+
   async function cleanPreview() {
     if (!currentBuffer || busy) return;
     clearError();
@@ -464,23 +550,7 @@
         showError("No watermark position to preview. Run Detect first, or pin the position manually.");
         return;
       }
-
-      const clone = new ImageData(new Uint8ClampedArray(previewImage.data), previewImage.width, previewImage.height);
-      const out = window.__erasioInpaintFrame(clone, candidate);
-
-      paintBefore(previewImage, candidateBox(candidate));
-      el.cleanPreview.width = out.width;
-      el.cleanPreview.height = out.height;
-      el.cleanPreview.getContext("2d").putImageData(out, 0, 0);
-
-      el.canvasBox.classList.add("has-after");
-      el.canvasBox.hidden = false;
-      setCompare(50);
-      el.compareHint.textContent = "Drag the handle to compare before and after.";
-
-      dbg(`preview clean: pos=(${candidate.x},${candidate.y}) box=${candidate.alphaMap.width}px ` +
-        `strength=${candidate.baseStrength.toFixed(2)} opacity=${candidate.opacity} ` +
-        `cleanup=${candidate.edgeCleanup ? candidate.edgeCleanup.strength : "off"}`);
+      showCleanPreview(candidate);
     } catch (err) {
       showError("Clean preview failed: " + (err && err.message ? err.message : String(err)));
     } finally {

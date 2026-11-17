@@ -451,12 +451,15 @@ h1 {
   height: 100%;
 }
 .canvas-box:not(.has-after) .compare-layer.after,
-.canvas-box:not(.has-after) .compare-divider { display: none; }
+.canvas-box:not(.has-after) .compare-divider,
+.canvas-box:not(.has-after) .tag-after { display: none; }
 
 .tag {
   position: absolute;
   top: 12px;
   z-index: 2;
+  display: inline-flex;
+  align-items: center;
   padding: 4px 9px;
   border-radius: 99px;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -471,7 +474,21 @@ h1 {
   pointer-events: none;
 }
 .tag-before { left: 12px; }
-.tag-after { right: 12px; }
+.tag-after { right: 12px; z-index: 5; }
+
+/* shown while a freshly dropped file is being prepared */
+.canvas-box.preview-working .tag-after { display: inline-flex; color: #c3bcff; border-color: rgba(139, 124, 255, 0.45); }
+.tag-after.working::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  border-top-color: #b9b1ff;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .compare-divider {
   position: absolute;
