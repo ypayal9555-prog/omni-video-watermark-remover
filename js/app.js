@@ -8,6 +8,7 @@
     fileCard: $("fileCard"),
     fileName: $("fileName"),
     fileSize: $("fileSize"),
+    fileDims: $("fileDims"),
     resetBtn: $("resetBtn"),
     previewBtn: $("previewBtn"),
     detectBtn: $("detectBtn"),
@@ -16,6 +17,9 @@
     runBtn: $("runBtn"),
     canvasBox: $("canvasBox"),
     canvas: $("preview"),
+    compare: $("compare"),
+    compareRange: $("compareRange"),
+    compareHint: $("compareHint"),
     detectStatus: $("detectStatus"),
     progressBox: $("progressBox"),
     stage: $("stage"),
@@ -100,6 +104,19 @@
     return (bytes / 1024 / 1024).toFixed(1) + " MB";
   }
 
+  function setDims(width, height) {
+    if (!width || !height) return;
+    el.fileDims.textContent = width + "×" + height;
+    el.fileDims.hidden = false;
+  }
+
+  // Before/after comparator: clip the cleaned layer from the left by `v`%.
+  function setCompare(v) {
+    const value = Math.max(0, Math.min(100, Number(v) || 0));
+    el.compare.style.setProperty("--split", value + "%");
+    el.compareRange.value = String(value);
+  }
+
   function resetUI() {
     currentFile = null;
     currentBuffer = null;
@@ -107,7 +124,9 @@
     detection = null;
     el.file.value = "";
     el.fileCard.hidden = true;
+    el.fileDims.hidden = true;
     el.canvasBox.hidden = true;
+    el.canvasBox.classList.remove("has-after");
     el.detectStatus.hidden = true;
     el.progressBox.hidden = true;
     el.result.hidden = true;
@@ -272,8 +291,10 @@
     currentBuffer = await file.arrayBuffer();
     el.fileName.textContent = file.name;
     el.fileSize.textContent = formatBytes(file.size);
+    el.fileDims.hidden = true;
     el.fileCard.hidden = false;
     el.canvasBox.hidden = true;
+    el.canvasBox.classList.remove("has-after");
     el.detectStatus.hidden = true;
     el.progressBox.hidden = true;
     el.result.hidden = true;
@@ -293,6 +314,10 @@
       ctx.strokeRect(box.x + 0.5, box.y + 0.5, box.w, box.h);
       ctx.restore();
     }
+    el.canvasBox.classList.remove("has-after");
+    el.compareHint.textContent = box
+      ? "Teal box marks the watermark being reversed. Run “Preview cleaned” to compare."
+      : "Run “Preview cleaned” to compare before and after.";
     el.canvasBox.hidden = false;
   }
 
@@ -309,6 +334,7 @@
     try {
       const frame = await window.__decodeVideoFrame(currentBuffer, 0.05);
       previewImage = frame.imageData;
+      setDims(frame.width, frame.height);
       const box = detection && detection.logo
         ? { x: detection.logo.x, y: detection.logo.y, w: detection.logo.side, h: detection.logo.side }
         : null;
@@ -340,6 +366,7 @@
     if (!quiet) {
       el.detectBtn.disabled = true;
       el.detectStatus.hidden = false;
+      el.detectStatus.className = "status";
       el.detectStatus.textContent = "Scanning frames…";
     }
     try {
@@ -356,6 +383,7 @@
         },
       });
       detection = d;
+      setDims(d.width, d.height);
       for (const note of d.notes || []) dbg("detect · " + note);
       dbg(`detect: ${d.width}x${d.height} — ${d.reason}`);
 
@@ -418,10 +446,12 @@
     if (!currentBuffer || busy) return;
     clearError();
     el.cleanPreviewBtn.disabled = true;
+    el.canvasBox.classList.remove("has-after");
     try {
       if (!previewImage) {
         const frame = await window.__decodeVideoFrame(currentBuffer, 0.05);
         previewImage = frame.imageData;
+        setDims(frame.width, frame.height);
       }
       if (!detection) await detectWatermark(true);
       const mode = el.engineMode.value;
@@ -442,6 +472,11 @@
       el.cleanPreview.width = out.width;
       el.cleanPreview.height = out.height;
       el.cleanPreview.getContext("2d").putImageData(out, 0, 0);
+
+      el.canvasBox.classList.add("has-after");
+      el.canvasBox.hidden = false;
+      setCompare(50);
+      el.compareHint.textContent = "Drag the handle to compare before and after.";
 
       dbg(`preview clean: pos=(${candidate.x},${candidate.y}) box=${candidate.alphaMap.width}px ` +
         `strength=${candidate.baseStrength.toFixed(2)} opacity=${candidate.opacity} ` +
@@ -590,6 +625,7 @@
     el.cleanPreviewBtn.addEventListener("click", cleanPreview);
     el.runBtn.addEventListener("click", run);
     el.applyBtn.addEventListener("click", applySettings);
+    el.compareRange.addEventListener("input", () => setCompare(el.compareRange.value));
     [el.strength, el.cleanup].forEach((input) => input.addEventListener("input", syncLabels));
     el.edgeMode.addEventListener("change", syncLabels);
     el.engineMode.addEventListener("change", () => {
@@ -601,6 +637,7 @@
   (async function init() {
     captureConsole();
     syncLabels();
+    setCompare(50);
     if (!checkSupport()) return;
     try {
       await publishConfig();

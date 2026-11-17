@@ -3,102 +3,164 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Omni Video Watermark Remover</title>
+  <meta name="theme-color" content="#08090e" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="description" content="Remove the visible Gemini / Omni sparkle and Veo wordmark from 720p and 1080p MP4s in your browser. Same masks and alpha math as Erasio 1.3.1. Nothing is uploaded." />
+  <title>Omni Purify — Video Watermark Remover</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <main class="wrap">
-    <header>
-      <h1>Omni Video Watermark Remover</h1>
-      <p class="sub">
-        Removes the visible <strong>Gemini / Omni sparkle</strong> and the
-        <strong>Veo wordmark</strong> from MP4s by reversing the exact alpha blend.
-        Same masks, offsets and opacity calibration as Erasio 1.3.1, run on your
-        own frames. <strong>100% local</strong> &mdash; the video never leaves the browser.
-      </p>
-    </header>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="./" aria-label="Omni Purify home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1.8c.62 4.87 4.33 8.58 9.2 9.2-4.87.62-8.58 4.33-9.2 9.2-.62-4.87-4.33-8.58-9.2-9.2 4.87-.62 8.58-4.33 9.2-9.2Z"/></svg>
+        </span>
+        <span class="brand-name">Omni<span>Purify</span></span>
+        <span class="brand-tag">1.3.1 engine</span>
+      </a>
+      <div class="topbar-right">
+        <span class="pill pill-live"><span class="pulse" aria-hidden="true"></span> Local only</span>
+        <a class="ghost-link" href="https://github.com/ypayal9555-prog/omni-video-watermark-remover" target="_blank" rel="noopener">GitHub <span aria-hidden="true">↗</span></a>
+      </div>
+    </div>
+  </header>
 
-    <section class="card" id="dropzone" tabindex="0" role="button" aria-label="Choose or drop an MP4 file">
-      <div class="dz-icon" aria-hidden="true">MP4</div>
-      <p class="dz-main">Drop an MP4 here, or <span class="link">browse</span></p>
-      <p class="dz-hint">Supported: 1280&times;720, 720&times;1280, 1920&times;1080, 1080&times;1920</p>
-      <input type="file" id="file" accept="video/mp4,.mp4" hidden />
+  <main class="wrap">
+    <section class="hero">
+      <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Erasio 1.3.1 math &middot; rebuilt for the browser</p>
+      <h1>Remove the sparkle.<br /><span class="grad-text">Keep the frame.</span></h1>
+      <p class="lede">
+        Reverses Google's exact alpha blend for the <strong>Gemini / Omni sparkle</strong> and the
+        <strong>Veo wordmark</strong> &mdash; same masks, offsets and opacity calibration as the
+        Erasio extension. Your video is decoded and re-encoded inside this tab.
+      </p>
+      <ul class="badges" role="list">
+        <li>720p &amp; 1080p</li>
+        <li>WebCodecs</li>
+        <li>Zero uploads</li>
+        <li>Visible watermark only</li>
+      </ul>
     </section>
 
-    <section class="card" id="fileCard" hidden>
-      <div class="row">
+    <section class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Choose or drop an MP4 file">
+      <input type="file" id="file" accept="video/mp4,.mp4" hidden />
+      <div class="dz-visual" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 15.5V4.5m0 0 3.8 3.8M12 4.5 8.2 8.3" />
+          <path d="M4 15v2.2A2.8 2.8 0 0 0 6.8 20h10.4a2.8 2.8 0 0 0 2.8-2.8V15" />
+        </svg>
+      </div>
+      <p class="dz-main">Drop your MP4 here</p>
+      <p class="dz-sub">or <span class="link">browse files</span> &mdash; 1280&times;720, 720&times;1280, 1920&times;1080, 1080&times;1920</p>
+      <p class="dz-foot">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
+        Processed on your device. Nothing is uploaded.
+      </p>
+    </section>
+
+    <section class="panel" id="fileCard" hidden>
+      <header class="file-row">
+        <div class="file-icon" aria-hidden="true">MP4</div>
         <div class="file-meta">
           <strong id="fileName">&mdash;</strong>
-          <span id="fileSize" class="muted"></span>
+          <span class="file-sub">
+            <span id="fileSize" class="muted"></span>
+            <span class="dot-sep" aria-hidden="true">&middot;</span>
+            <span id="fileDims" class="chip" hidden></span>
+          </span>
         </div>
-        <button id="resetBtn" class="btn ghost" type="button">Remove file</button>
-      </div>
+        <button id="resetBtn" class="btn ghost sm" type="button">Remove file</button>
+      </header>
 
       <div class="actions">
         <button id="previewBtn" class="btn" type="button">Preview frame</button>
         <button id="detectBtn" class="btn" type="button">Detect watermark</button>
         <button id="cleanPreviewBtn" class="btn" type="button">Preview cleaned</button>
-        <button id="runBtn" class="btn primary" type="button">Remove watermark</button>
+        <button id="runBtn" class="btn primary" type="button">
+          <span>Remove watermark</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15m0 0-5.5-5.5M19 12l-5.5 5.5"/></svg>
+        </button>
       </div>
 
-      <p id="detectStatus" class="status" hidden></p>
+      <p id="detectStatus" class="status" role="status" aria-live="polite" hidden></p>
 
       <div class="canvas-box" id="canvasBox" hidden>
-        <div class="canvas-pair">
-          <div><canvas id="preview"></canvas><span class="muted small">Before (box = detected mark)</span></div>
-          <div><canvas id="cleanPreview"></canvas><span class="muted small">After (preview)</span></div>
+        <div class="compare" id="compare">
+          <div class="compare-layer before">
+            <canvas id="preview"></canvas>
+            <span class="tag tag-before">Before</span>
+          </div>
+          <div class="compare-layer after">
+            <canvas id="cleanPreview"></canvas>
+            <span class="tag tag-after">After</span>
+          </div>
+          <div class="compare-divider" aria-hidden="true">
+            <span class="compare-knob">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 7-5 5 5 5M14.5 7l5 5-5 5"/></svg>
+            </span>
+          </div>
+          <input id="compareRange" class="compare-range" type="range" min="0" max="100" step="0.1" value="50" aria-label="Compare before and after" />
         </div>
+        <p class="compare-hint" id="compareHint">Teal box marks the watermark being reversed.</p>
       </div>
 
       <details class="tune" id="tuneBox">
-        <summary>Engines &amp; fine-tuning</summary>
-        <p class="muted small">
-          Google stamps two different marks: the <strong>sparkle</strong> (the four-point
-          star, in two logo generations with different alpha) and the
-          <strong>Veo wordmark</strong>. Auto mode scores the families on real frames and
-          picks the one that is actually there.
-        </p>
+        <summary>
+          <span>Engines &amp; fine-tuning</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </summary>
+        <div class="tune-body">
+          <p class="muted small">
+            Google stamps two different marks: the <strong>sparkle</strong> (the four-point
+            star, in two logo generations with different alpha) and the
+            <strong>Veo wordmark</strong>. Auto mode scores the families on real frames and
+            picks the one that is actually there.
+          </p>
 
-        <div class="grid">
-          <label>Watermark engine
-            <select id="engineMode">
-              <option value="auto">Auto &mdash; Erasio default (logo first, then 2026)</option>
-              <option value="old">Logo only (bg_48 / paired star &mdash; Erasio default)</option>
-              <option value="new">2026 sparkle only</option>
-              <option value="veo">Veo wordmark only (Flow)</option>
-            </select>
-          </label>
-          <label>Removal strength <span class="val" id="strengthVal">1.00&times;</span>
-            <input type="range" id="strength" min="0.5" max="1.5" step="0.01" value="1" />
-          </label>
-          <label>Edge cleanup
-            <select id="edgeMode">
-              <option value="auto">Auto &mdash; Erasio rule</option>
-              <option value="on">Always on</option>
-              <option value="off">Off</option>
-            </select>
-          </label>
-          <label>Cleanup strength <span class="val" id="cleanupVal">0.60</span>
-            <input type="range" id="cleanup" min="0" max="1" step="0.05" value="0.6" />
-          </label>
-        </div>
+          <div class="grid">
+            <label>Watermark engine
+              <select id="engineMode">
+                <option value="auto">Auto &mdash; Erasio default (logo first, then 2026)</option>
+                <option value="old">Logo only (bg_48 / paired star &mdash; Erasio default)</option>
+                <option value="new">2026 sparkle only</option>
+                <option value="veo">Veo wordmark only (Flow)</option>
+              </select>
+            </label>
+            <label>Removal strength <span class="val" id="strengthVal">1.00&times;</span>
+              <input type="range" id="strength" min="0.5" max="1.5" step="0.01" value="1" />
+            </label>
+            <label>Edge cleanup
+              <select id="edgeMode">
+                <option value="auto">Auto &mdash; Erasio rule</option>
+                <option value="on">Always on</option>
+                <option value="off">Off</option>
+              </select>
+            </label>
+            <label>Cleanup strength <span class="val" id="cleanupVal">0.60</span>
+              <input type="range" id="cleanup" min="0" max="1" step="0.05" value="0.6" />
+            </label>
+          </div>
 
-        <div class="grid pin-grid">
-          <label class="check"><input type="checkbox" id="pinPosition" /> Pin position manually</label>
-          <label>Inset from right (px) <input type="number" id="posDx" min="0" value="96" /></label>
-          <label>Inset from bottom (px) <input type="number" id="posDy" min="0" value="96" /></label>
-          <label>Mark size (px) <input type="number" id="posSize" min="8" value="48" /></label>
-        </div>
-        <p class="muted small">
-          Detection fills these in for you. Only touch them if the box in the preview is in the
-          wrong place.
-        </p>
+          <div class="grid pin-grid">
+            <label class="check"><input type="checkbox" id="pinPosition" /> Pin position manually</label>
+            <label>Inset from right (px) <input type="number" id="posDx" min="0" value="96" /></label>
+            <label>Inset from bottom (px) <input type="number" id="posDy" min="0" value="96" /></label>
+            <label>Mark size (px) <input type="number" id="posSize" min="8" value="48" /></label>
+          </div>
+          <p class="muted small">
+            Detection fills these in for you. Only touch them if the box in the preview is in the
+            wrong place.
+          </p>
 
-        <div class="grid">
-          <label class="check"><input type="checkbox" id="forceRun" /> Run even if nothing is detected</label>
+          <div class="grid">
+            <label class="check"><input type="checkbox" id="forceRun" /> Run even if nothing is detected</label>
+          </div>
+          <div class="apply-row">
+            <button id="applyBtn" class="btn" type="button">Apply settings</button>
+            <span id="applyStatus" class="muted small"></span>
+          </div>
         </div>
-        <button id="applyBtn" class="btn" type="button">Apply settings</button>
-        <span id="applyStatus" class="muted small"></span>
       </details>
 
       <div id="progressBox" hidden>
@@ -115,25 +177,51 @@
         <pre id="debugLog">No engine output yet.</pre>
       </details>
 
-      <div id="result" class="result" hidden>
-        <p class="ok">Done &mdash; watermark removed.</p>
+      <div id="result" class="result" aria-live="polite" hidden>
+        <div class="result-text">
+          <span class="result-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+          </span>
+          <div>
+            <p class="ok">Done &mdash; watermark removed.</p>
+            <p class="muted small" id="resultSize"></p>
+          </div>
+        </div>
         <a id="download" class="btn primary" download>Download clean MP4</a>
-        <p class="muted small" id="resultSize"></p>
       </div>
 
-      <div id="error" class="error" hidden></div>
+      <div id="error" class="error" role="alert" hidden></div>
     </section>
 
-    <footer class="muted small">
+    <section class="how" aria-label="How it works">
+      <article class="how-card">
+        <span class="how-num">01</span>
+        <h3>Detect</h3>
+        <p>Scores both sparkle generations and the Veo wordmark against real frames, then picks the mark that is actually there.</p>
+      </article>
+      <article class="how-card">
+        <span class="how-num">02</span>
+        <h3>Reverse the blend</h3>
+        <p>Rebuilds the alpha map and solves <code>original = (observed &minus; &alpha;&middot;mark) / (1 &minus; &alpha;)</code> on every frame.</p>
+      </article>
+      <article class="how-card">
+        <span class="how-num">03</span>
+        <h3>Re-encode locally</h3>
+        <p>WebCodecs writes a clean MP4 in your tab. No server, no upload, no account, no credits.</p>
+      </article>
+    </section>
+
+    <footer>
       <p>
         Requires a modern browser with <strong>WebCodecs</strong> (Chrome 94+ / Edge 94+).
-        Only the <em>visible</em> sparkle is removed; Google's invisible SynthID
-        watermark survives re-encoding.
+        Only the <em>visible</em> sparkle or wordmark is removed &mdash; Google's invisible
+        SynthID watermark survives re-encoding.
       </p>
       <p>
         Engine reconstructed from the locally installed Erasio 1.3.1 extension.
         Core reverse-blend algorithm credited to
         <a href="https://github.com/allenk/geminiwatermarktool" target="_blank" rel="noopener">Allen Kuo</a>.
+        <a href="https://github.com/ypayal9555-prog/omni-video-watermark-remover/blob/main/NOTICE" target="_blank" rel="noopener">Notice</a>.
       </p>
     </footer>
   </main>
