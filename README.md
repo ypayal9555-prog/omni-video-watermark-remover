@@ -90,7 +90,8 @@ approximation of it.
 - 720p / 1080p, 16:9 and 9:16 — 1280×720, 720×1280, 1920×1080, 1080×1920
 - Detection box + cleaned-frame preview before committing to a full re-encode
 - **Bulk processing:** drop several MP4s at once → queue with per-file status and progress,
-  individual download links, or **Download all (.zip)**. More files can be dropped while it runs.
+  individual download links, or **Download all** (saves each MP4 separately). More files can be
+  dropped while it runs. A **Paste (Ctrl+V)** option is also available.
 - Manual pin (inset from the right/bottom edge + mark size) when auto-detect is unsure
 - Runs **100% in the browser** — no uploads, no server, no API keys
 
@@ -121,8 +122,13 @@ python -m http.server 8000
 
 **Bulk:** drop two or more MP4s (or multi-select in the file picker) instead. A batch queue shows
 each file with its own progress and download link. Files are processed sequentially with the same
-Erasio calibration; **Download all (.zip)** collects every successful output. Failed files stay in
-the list with the reason, and do not stop the rest of the queue.
+Erasio calibration; **Download all** saves each successful output as its own MP4 (no ZIP). Failed
+files stay in the list with the reason, and do not stop the rest of the queue.
+
+**Paste:** press **Ctrl+V** on the page (or click **Paste from clipboard**) to load a video the
+browser exposes as a clipboard file. Note that browsers normally expose only images and text from
+the system clipboard — an MP4 copied in File Explorer usually cannot be pasted into a web page, so
+drag-and-drop or Browse remains the reliable route for local files.
 
 ### If it is still visible
 
