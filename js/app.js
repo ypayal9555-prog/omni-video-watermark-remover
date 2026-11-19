@@ -9,6 +9,7 @@
     fileName: $("fileName"),
     fileSize: $("fileSize"),
     fileDims: $("fileDims"),
+    fileWarning: $("fileWarning"),
     resetBtn: $("resetBtn"),
     batchCard: $("batchCard"),
     batchList: $("batchList"),
@@ -18,7 +19,17 @@
     batchDownloadAll: $("batchDownloadAll"),
     batchClear: $("batchClear"),
     pasteBtn: $("pasteBtn"),
+    pasteBtnLabel: $("pasteBtnLabel"),
     pasteHint: $("pasteHint"),
+    dzMain: $("dzMain"),
+    dzSub: $("dzSub"),
+    mobileNote: $("mobileNote"),
+    supportCard: $("supportCard"),
+    supportTitle: $("supportTitle"),
+    supportBody: $("supportBody"),
+    supportList: $("supportList"),
+    shareBtn: $("shareBtn"),
+    batchNote: $("batchNote"),
     previewBtn: $("previewBtn"),
     detectBtn: $("detectBtn"),
     cleanPreviewBtn: $("cleanPreviewBtn"),
@@ -62,12 +73,13 @@
     analyze: "Locating the watermark…",
     process: "Erasing watermark, frame by frame…",
     mux: "Packaging the clean video…",
-    done: "Finishing…",
+    done: "Done",
   };
 
   let currentFile = null;
   let currentBuffer = null;
   let resultUrl = null;
+  let resultShareFile = null;
   let previewImage = null;
   let busy = false;
   let previewToken = 0;   // cancels an auto-preview when a new file is loaded
@@ -75,6 +87,14 @@
   let batchItems = [];
   let batchRunning = false;
   let newMaps = null;
+  let canProcess = true;
+  let lastProgressAt = Date.now();
+  let stallNoticeAt = 0;
+  const isTouch = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+  const caps = { base: false, decoder: null, encoder: null };
+  const DRAG_HINT = isTouch
+    ? "Swipe the handle to compare before and after."
+    : "Drag the handle to compare before and after.";
 
   // Erasio's shipped video defaults (Object.freeze `Ru` in the side panel).
   const settings = {
@@ -117,6 +137,22 @@
     return (bytes / 1024 / 1024).toFixed(1) + " MB";
   }
 
+  // Turn engine errors into something actionable on a phone.
+  function explainError(err) {
+    const msg = err && err.message ? err.message : String(err);
+    const low = msg.toLowerCase();
+    if (low.includes("encoder") || low.includes("webcodecs")) {
+      return msg + " — this browser cannot encode H.264. On iPhone use Safari with the latest " +
+        "iOS; on Android use Chrome, Edge or Samsung Internet (Firefox Android is unsupported).";
+    }
+    if (low.includes("out of memory") || low.includes("allocation failed") ||
+        low.includes("array buffer allocation") || low.includes("quota")) {
+      return "The browser ran out of memory. Close other tabs, try a shorter or 720p clip, " +
+        "keep the screen on and run it again. (" + msg + ")";
+    }
+    return msg;
+  }
+
   function setDims(width, height) {
     if (!width || !height) return;
     el.fileDims.textContent = width + "×" + height;
@@ -139,6 +175,7 @@
     el.file.value = "";
     el.fileCard.hidden = true;
     el.fileDims.hidden = true;
+    el.fileWarning.hidden = true;
     el.canvasBox.hidden = true;
     el.canvasBox.classList.remove("has-after", "preview-working");
     el.afterTag.textContent = "After";
@@ -146,6 +183,8 @@
     el.detectStatus.hidden = true;
     el.progressBox.hidden = true;
     el.result.hidden = true;
+    el.shareBtn.hidden = true;
+    resultShareFile = null;
     clearError();
     if (resultUrl) {
       URL.revokeObjectURL(resultUrl);
@@ -153,21 +192,155 @@
     }
   }
 
-  function checkSupport() {
+  // ---------- support detection ----------
+
+  function platformName() {
+    const ua = navigator.userAgent || "";
+    if (/iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) return "ios";
+    if (/Android/i.test(ua)) return "android";
+    if (/Firefox/i.test(ua)) return "firefox";
+    return "desktop";
+  }
+
+  async function testEncoder() {
+    if (typeof VideoEncoder === "undefined") return null;
+    const base = { width: 1280, height: 720, bitrate: 3000000, framerate: 30, avc: { format: "avc" } };
+    for (const codec of ["avc1.640028", "avc1.4d0028", "avc1.42001f"]) {
+      try {
+        const r = await VideoEncoder.isConfigSupported(Object.assign({ codec }, base));
+        if (r && r.supported) return codec;
+      } catch (err) { /* try the next profile */ }
+    }
+    return null;
+  }
+
+  async function testDecoder() {
+    if (typeof VideoDecoder === "undefined") return null;
+    for (const codec of ["avc1.640028", "avc1.4d0028", "avc1.42001f"]) {
+      try {
+        const r = await VideoDecoder.isConfigSupported({ codec, codedWidth: 1280, codedHeight: 720 });
+        if (r && r.supported) return codec;
+      } catch (err) { /* try the next profile */ }
+    }
+    return null;
+  }
+
+  function supportsEncoderMessage() {
+    const platform = platformName();
+    const tips = [];
+    if (platform === "ios") {
+      tips.push("<strong>iPhone / iPad:</strong> update to the latest iOS and use Safari. " +
+        "Chrome and Firefox on iOS run on Safari's engine, so switching browsers will not help.");
+      tips.push("<strong>Older iOS:</strong> WebCodecs video encoding needs iOS 16.4+ and is " +
+        "most reliable on iOS 17.4 or newer.");
+      tips.push("<strong>Workaround:</strong> process the same clip in Chrome or Edge on a computer — " +
+        "the output is identical.");
+    } else if (platform === "android") {
+      tips.push("<strong>Android:</strong> open this page in Chrome, Edge or Samsung Internet 17+ " +
+        "and update Android System WebView from the Play Store.");
+      tips.push("<strong>Low-end devices:</strong> some Android builds do not expose a hardware " +
+        "H.264 encoder to the browser. Try a different browser or a desktop.");
+    } else if (platform === "firefox") {
+      tips.push("<strong>Firefox</strong> (desktop and Android) does not expose a WebCodecs video " +
+        "encoder yet.");
+      tips.push("Open the page in <strong>Chrome or Edge</strong> instead.");
+    } else {
+      tips.push("Use a recent <strong>Chrome / Edge 94+</strong>, or <strong>Safari 17.4+</strong>.");
+      tips.push("Make sure hardware acceleration is enabled for the browser.");
+    }
+    return {
+      title: "This browser cannot re-encode video on this device",
+      body: "WebCodecs H.264 encoding is not available here, so the cleaned MP4 cannot be written. " +
+        "Everything runs locally in the tab, which is why a real video encoder is required.",
+      tips,
+    };
+  }
+
+  function showSupport(info) {
+    el.supportTitle.textContent = info.title;
+    el.supportBody.textContent = info.body;
+    el.supportList.replaceChildren();
+    for (const tip of info.tips || []) {
+      const li = document.createElement("li");
+      li.innerHTML = tip; // fixed guidance strings only
+      el.supportList.appendChild(li);
+    }
+    el.supportCard.hidden = false;
+  }
+
+  function blockProcessing() {
+    canProcess = false;
+    el.dropzone.classList.add("disabled");
+    el.dropzone.setAttribute("aria-disabled", "true");
+    el.dropzone.tabIndex = -1;
+    el.pasteBtn.disabled = true;
+  }
+
+  async function checkSupport() {
     const missing = [];
     if (typeof MP4Box === "undefined") missing.push("MP4Box");
     if (typeof Mp4Muxer === "undefined") missing.push("Mp4Muxer");
     if (typeof window.__purifyVideo !== "function") missing.push("video engine");
     if (typeof window.__purifyVeoVideo !== "function") missing.push("Veo engine");
     if (typeof window.__erasioDetect !== "object") missing.push("detector");
-    if (typeof VideoDecoder === "undefined" || typeof VideoEncoder === "undefined") missing.push("WebCodecs");
     if (typeof OffscreenCanvas === "undefined" || typeof createImageBitmap !== "function") missing.push("OffscreenCanvas");
+
     if (missing.length) {
-      showError("Missing required browser APIs: " + missing.join(", ") +
-        ". Open this page in a recent Chrome or Edge over http:// (or GitHub Pages).");
+      showSupport({
+        title: "The page did not load its video engine",
+        body: "Missing: " + missing.join(", ") + ".",
+        tips: ["Serve this folder over https:// or http:// — opening index.html directly from " +
+          "file:// blocks the mask images and scripts.", "Then reload with Ctrl+F5."],
+      });
+      blockProcessing();
       return false;
     }
+
+    if (typeof VideoDecoder === "undefined" || typeof VideoEncoder === "undefined") {
+      showSupport(supportsEncoderMessage());
+      blockProcessing();
+      return false;
+    }
+
+    caps.decoder = await testDecoder();
+    caps.encoder = await testEncoder();
+    caps.base = true;
+
+    if (!caps.decoder) {
+      showSupport({
+        title: "This browser cannot decode H.264 video",
+        body: "WebCodecs is present, but this device reports no H.264 decoder. The input MP4 " +
+          "cannot be read, so nothing can be cleaned.",
+        tips: ["Update the browser and the operating system.", "On Android, update Chrome and " +
+          "Android System WebView from the Play Store.", "On iOS, update to the latest version."],
+      });
+      blockProcessing();
+      return false;
+    }
+
+    if (!caps.encoder) {
+      showSupport(supportsEncoderMessage());
+      blockProcessing();
+      return false;
+    }
+
+    dbg("browser: H.264 encoder " + caps.encoder + ", decoder " + caps.decoder);
     return true;
+  }
+
+  // ---------- phone layout ----------
+
+  function adaptForTouch() {
+    if (!isTouch) return;
+    document.documentElement.classList.add("is-touch");
+    el.dzMain.textContent = "Tap to choose your MP4s";
+    el.dzSub.textContent = "Pick one or several at once. 720p / 1080p only. " +
+      "Clipboard paste works only if your browser allows it.";
+    el.pasteBtnLabel.textContent = "Paste from clipboard";
+    el.pasteHint.textContent = "On a phone, Browse is the reliable way to pick a video.";
+    el.batchNote.textContent = "Phones: process one or two clips at a time, download each result, " +
+      "then tap Clear queue to free memory. Keep this tab open and the screen on.";
+    el.mobileNote.hidden = false;
   }
 
   // The vendored engine calibrates position + opacity itself, exactly like the
@@ -296,6 +469,11 @@
 
   async function acceptFile(file) {
     if (!file) return;
+    if (!canProcess) {
+      el.supportCard.hidden = false;
+      el.supportCard.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     if (!/\.mp4$/i.test(file.name) && file.type !== "video/mp4") {
       showError("Please choose an MP4 file.");
       return;
@@ -311,6 +489,16 @@
     el.fileSize.textContent = formatBytes(file.size);
     el.fileDims.hidden = true;
     el.fileCard.hidden = false;
+    el.fileWarning.hidden = true;
+    if (isTouch) {
+      const mb = file.size / 1048576;
+      if (mb >= 180) {
+        el.fileWarning.textContent = "This clip is " + mb.toFixed(0) +
+          " MB. Phones can run out of memory — try a shorter clip or the 720p version if it fails.";
+        el.fileWarning.hidden = false;
+      }
+      el.fileCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
     el.canvasBox.hidden = true;
     el.canvasBox.classList.remove("has-after", "preview-working");
     el.afterTag.textContent = "After";
@@ -486,7 +674,7 @@
     endWorking();
     el.canvasBox.hidden = false;
     setCompare(50);
-    el.compareHint.textContent = "Drag the handle to compare before and after.";
+    el.compareHint.textContent = DRAG_HINT;
     dbg(`preview clean: pos=(${candidate.x},${candidate.y}) box=${candidate.alphaMap.width}px ` +
       `strength=${candidate.baseStrength.toFixed(2)} opacity=${candidate.opacity} ` +
       `cleanup=${candidate.edgeCleanup ? candidate.edgeCleanup.strength : "off"}`);
@@ -572,6 +760,8 @@
   // ---------- run ----------
 
   function setProgress(stage, ratio) {
+    lastProgressAt = Date.now();
+    stallNoticeAt = 0;
     el.stage.textContent = STAGE_LABELS[stage] || stage || "Working…";
     const pct = Math.round((ratio || 0) * 100);
     el.percent.textContent = pct + "%";
@@ -594,6 +784,8 @@
   async function run() {
     if (!currentBuffer || busy || batchRunning) return;
     busy = true;
+    lastProgressAt = Date.now();
+    stallNoticeAt = 0;
     clearError();
     el.result.hidden = true;
     el.progressBox.hidden = false;
@@ -668,10 +860,22 @@
       const base = (currentFile ? currentFile.name : "video").replace(/\.[^.]+$/, "");
       el.download.download = base + "-nowatermark.mp4";
       el.resultSize.textContent = formatBytes(blob.size) + " output file";
+      el.shareBtn.hidden = true;
+      resultShareFile = null;
+      if (isTouch && navigator.canShare) {
+        try {
+          const file = new File([blob], base + "-nowatermark.mp4", { type: "video/mp4" });
+          if (navigator.canShare({ files: [file] })) {
+            resultShareFile = file;
+            el.shareBtn.hidden = false;
+          }
+        } catch (err) { /* share is a bonus, never block the download */ }
+      }
       setProgress("done", 1);
       el.result.hidden = false;
+      if (isTouch) el.result.scrollIntoView({ behavior: "smooth", block: "center" });
     } catch (err) {
-      const msg = err && err.message ? err.message : String(err);
+      const msg = explainError(err);
       showError("Processing failed: " + msg +
         (msg.includes("Unsupported dimensions")
           ? " — this engine is calibrated for 720p / 1080p (16:9 or 9:16) only."
@@ -696,6 +900,13 @@
   }
 
   function acceptFiles(files) {
+    if (!canProcess) {
+      if (files && files.length) {
+        el.supportCard.hidden = false;
+        el.supportCard.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      return;
+    }
     const list = Array.from(files || []);
     if (!list.length) return;
     const videos = list.filter((f) => /\.mp4$/i.test(f.name) || f.type === "video/mp4");
@@ -718,6 +929,7 @@
     }
     resetUI(); // hide the single-file editor and its stale preview
     el.batchCard.hidden = false;
+    if (isTouch) el.batchCard.scrollIntoView({ behavior: "smooth", block: "start" });
     showBatchError("");
     renderBatch();
     updateBatchSummary();
@@ -791,6 +1003,8 @@
 
   function setRowProgress(item, ratio) {
     if (!item.barBox) return;
+    lastProgressAt = Date.now();
+    stallNoticeAt = 0;
     item.barBox.hidden = false;
     item.barFill.style.width = Math.round(Math.max(0, Math.min(1, ratio || 0)) * 100) + "%";
   }
@@ -818,6 +1032,8 @@
   }
 
   async function processBatchItem(item) {
+    lastProgressAt = Date.now();
+    stallNoticeAt = 0;
     setRowStatus(item, "working", "Reading…");
     setRowProgress(item, 0);
     try {
@@ -878,7 +1094,7 @@
         item.linkEl.download = outputName(item);
       }
     } catch (err) {
-      const msg = err && err.message ? err.message : String(err);
+      const msg = explainError(err);
       item.error = msg;
       setRowStatus(item, "error", msg.length > 90 ? msg.slice(0, 90) + "…" : msg);
       dbg(`batch ${item.name} FAILED: ${msg}`);
@@ -976,16 +1192,40 @@
         el.pasteBtn.classList.remove("busy");
       }
     }
-    el.pasteHint.textContent =
-      "No MP4 on the clipboard. Browsers only expose images/text from a copied file — drop the MP4 or use Browse instead.";
+    el.pasteHint.textContent = isTouch
+      ? "No video on the clipboard. On a phone, tap Browse to pick the MP4."
+      : "No MP4 on the clipboard. Browsers only expose images/text from a copied file — drop the MP4 or use Browse instead.";
+  }
+
+  async function shareResult() {
+    if (!resultShareFile) return;
+    try {
+      await navigator.share({ files: [resultShareFile], title: "Clean video" });
+    } catch (err) {
+      if (err && err.name !== "AbortError") {
+        showError("Sharing failed: " + (err.message || String(err)) +
+          " — use Download clean MP4 instead.");
+      }
+    }
   }
 
   function bindEvents() {
     document.addEventListener("paste", onPaste);
     el.pasteBtn.addEventListener("click", pasteFromClipboard);
-    el.dropzone.addEventListener("click", () => el.file.click());
+    el.shareBtn.addEventListener("click", shareResult);
+    el.dropzone.addEventListener("click", () => {
+      if (!canProcess) {
+        el.supportCard.hidden = false;
+        el.supportCard.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      el.file.click();
+    });
     el.dropzone.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.file.click(); }
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        if (canProcess) el.file.click();
+      }
     });
     ["dragenter", "dragover"].forEach((type) =>
       el.dropzone.addEventListener(type, (e) => {
@@ -1024,17 +1264,31 @@
     });
   }
 
+  function watchForStall() {
+    if (!busy && !batchRunning) return;
+    if (Date.now() - lastProgressAt < 120000) return;
+    if (stallNoticeAt && Date.now() - stallNoticeAt < 120000) return;
+    stallNoticeAt = Date.now();
+    const note = "No progress for 2 minutes — this device's encoder may be stuck. Keep " +
+      "waiting, or reload the page and try a shorter 720p clip.";
+    if (batchRunning) el.batchStatus.textContent = note;
+    else el.engineLog.textContent = note;
+    dbg("stall warning: no engine progress for 2 minutes");
+  }
+
   (async function init() {
     captureConsole();
     syncLabels();
     setCompare(50);
-    if (!checkSupport()) return;
+    adaptForTouch();
+    bindEvents();
+    setInterval(watchForStall, 10000);
+    const ok = await checkSupport();
+    if (!ok) return;
     try {
       await publishConfig();
     } catch (err) {
       showError("Could not initialise watermark maps: " + (err && err.message ? err.message : String(err)));
-      return;
     }
-    bindEvents();
   })();
 })();

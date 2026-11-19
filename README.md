@@ -93,6 +93,8 @@ approximation of it.
   individual download links, or **Download all** (saves each MP4 separately). More files can be
   dropped while it runs. A **Paste (Ctrl+V)** option is also available.
 - Manual pin (inset from the right/bottom edge + mark size) when auto-detect is unsure
+- **Works on phones:** touch-sized controls, tap-to-pick dropzone, swipeable before/after slider,
+  H.264 capability detection before you pick a file, and system **Save / share** on mobile
 - Runs **100% in the browser** — no uploads, no server, no API keys
 
 ## Quick start
@@ -112,7 +114,9 @@ python -m http.server 8000
 
 ## Usage
 
-1. Open the page in Chrome or Edge (WebCodecs required).
+1. Open the page in a WebCodecs browser — Chrome / Edge on desktop and Android, Safari on
+   iOS 16.4+ (the page checks H.264 encoding and shows a browser-specific banner if it is
+   unavailable).
 2. Drop one MP4, or click to browse. The before/after slider appears automatically: first the
    original frame, then the cleaned half once detection finishes.
 3. Optionally click **Detect watermark** — the status line shows the family, Pearson r, position,
@@ -129,6 +133,33 @@ files stay in the list with the reason, and do not stop the rest of the queue.
 browser exposes as a clipboard file. Note that browsers normally expose only images and text from
 the system clipboard — an MP4 copied in File Explorer usually cannot be pasted into a web page, so
 drag-and-drop or Browse remains the reliable route for local files.
+
+### On a phone or tablet
+
+The layout is touch-first: tap the dropzone to pick one or more MP4s, swipe the before/after
+handle (vertical swipes still scroll the page), and use **Save / share…** after a run to send the
+clean MP4 to Photos / Files through the system share sheet.
+
+| Device | Browser | Re-encode |
+|---|---|---|
+| Android 10+ | Chrome, Edge, Samsung Internet 17+ | Yes — hardware H.264 |
+| iPhone / iPad, iOS 16.4+ | Safari (Chrome/Firefox on iOS use WebKit too) | Detected at runtime; most builds encode video |
+| iPhone / iPad, iOS 15 or older | any | No WebCodecs — the page explains it |
+| Android | Firefox | No `VideoEncoder` yet — use Chrome |
+| Desktop | Chrome / Edge 94+, Safari 17.4+ | Yes |
+
+The page probes `VideoEncoder.isConfigSupported()` for the actual H.264 config before enabling
+the dropzone, so an unsupported phone gets a clear banner instead of failing after a file is
+picked. On a phone:
+
+- Keep the tab in the foreground and the screen on. Locking the phone or switching apps can pause
+  the encode; it resumes when you come back.
+- Start with 720p clips under a minute. Long 1080p clips can exceed mobile memory — the page warns
+  above roughly 180 MB. If a run fails, close other tabs and try a shorter clip.
+- **Download** saves the MP4 to Files / Downloads. **Save / share…** opens the system share sheet
+  when the browser supports sharing files.
+- Bulk mode keeps every finished output in memory. Download each result and tap **Clear queue**
+  before starting another large batch.
 
 ### If it is still visible
 
