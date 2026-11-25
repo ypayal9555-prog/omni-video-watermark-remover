@@ -89,6 +89,9 @@ approximation of it.
 - Auto family/engine selection, or force one
 - 720p / 1080p, 16:9 and 9:16 — 1280×720, 720×1280, 1920×1080, 1080×1920
 - Detection box + cleaned-frame preview before committing to a full re-encode
+- **Cleaned-video preview:** play the finished MP4 in the page before downloading it
+- **Drop anywhere on the page** (desktop), with a full-screen drop target and a top progress line
+- **Reset to Erasio defaults** restores every fine-tuning control in one tap
 - **Bulk processing:** drop several MP4s at once → queue with per-file status and progress,
   individual download links, or **Download all** (saves each MP4 separately). More files can be
   dropped while it runs. A **Paste (Ctrl+V)** option is also available.

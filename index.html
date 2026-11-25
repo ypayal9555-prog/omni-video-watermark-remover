@@ -7,6 +7,13 @@
   <meta name="color-scheme" content="dark" />
   <meta name="description" content="Remove the visible Gemini / Omni sparkle and Veo wordmark from 720p and 1080p MP4s in your browser. Same masks and alpha math as Erasio 1.3.1. Nothing is uploaded." />
   <title>Omni Purify — Video Watermark Remover</title>
+  <meta property="og:title" content="Omni Purify — remove the Gemini / Omni sparkle from video" />
+  <meta property="og:description" content="Reverses Google's visible sparkle and Veo wordmark in 720p / 1080p MP4s, entirely in your browser. Same masks and alpha math as Erasio 1.3.1. Nothing is uploaded." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://ypayal9555-prog.github.io/omni-video-watermark-remover/" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Omni Purify — video watermark remover" />
+  <meta name="twitter:description" content="Remove the visible Gemini / Omni sparkle and Veo wordmark from 720p / 1080p MP4s. 100% local, no uploads." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%238b7cff' d='M12 1.8c.62 4.87 4.33 8.58 9.2 9.2-4.87.62-8.58 4.33-9.2 9.2-.62-4.87-4.33-8.58-9.2-9.2 4.87-.62 8.58-4.33 9.2-9.2Z'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -25,9 +32,10 @@
         <a class="ghost-link" href="https://github.com/ypayal9555-prog/omni-video-watermark-remover" target="_blank" rel="noopener">GitHub <span aria-hidden="true">↗</span></a>
       </div>
     </div>
+    <div class="topbar-progress" id="topProgress" aria-hidden="true"></div>
   </header>
 
-  <main class="wrap">
+  <main class="wrap" id="top">
     <section class="hero">
       <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Erasio 1.3.1 math &middot; rebuilt for the browser</p>
       <h1>Remove the sparkle.<br /><span class="grad-text">Keep the frame.</span></h1>
@@ -42,6 +50,12 @@
         <li>Zero uploads</li>
         <li>Visible watermark only</li>
       </ul>
+
+      <ol class="steps" role="list" aria-label="How it works">
+        <li><span aria-hidden="true">1</span> Pick a clip</li>
+        <li><span aria-hidden="true">2</span> Check the frame</li>
+        <li><span aria-hidden="true">3</span> Save the MP4</li>
+      </ol>
     </section>
 
     <section class="panel support" id="supportCard" hidden aria-live="polite">
@@ -65,6 +79,10 @@
       </div>
       <p class="dz-main" id="dzMain">Drop your MP4s here</p>
       <p class="dz-sub" id="dzSub">or <span class="link">browse files</span> &mdash; select several at once for bulk processing. 720p / 1080p only. You can also <span class="link">paste with Ctrl+V</span>.</p>
+      <span class="dz-cta" aria-hidden="true">
+        Choose MP4 files
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15m0 0-5.5-5.5M19 12l-5.5 5.5"/></svg>
+      </span>
       <p class="dz-foot">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
         Processed on your device. Nothing is uploaded.
@@ -124,10 +142,12 @@
       <p id="fileWarning" class="file-warning" role="status" hidden></p>
 
       <div class="actions">
-        <button id="previewBtn" class="btn" type="button">Preview frame</button>
-        <button id="detectBtn" class="btn" type="button">Detect watermark</button>
-        <button id="cleanPreviewBtn" class="btn" type="button">Preview cleaned</button>
-        <button id="runBtn" class="btn primary" type="button">
+        <div class="action-tools" role="group" aria-label="Preview and detection">
+          <button id="previewBtn" class="btn" type="button">Preview frame</button>
+          <button id="detectBtn" class="btn" type="button">Detect watermark</button>
+          <button id="cleanPreviewBtn" class="btn" type="button">Preview cleaned</button>
+        </div>
+        <button id="runBtn" class="btn primary cta" type="button">
           <span>Remove watermark</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15m0 0-5.5-5.5M19 12l-5.5 5.5"/></svg>
         </button>
@@ -171,10 +191,10 @@
           <div class="grid">
             <label>Watermark engine
               <select id="engineMode">
-                <option value="auto">Auto &mdash; Erasio default (logo first, then 2026)</option>
-                <option value="old">Logo only (bg_48 / paired star &mdash; Erasio default)</option>
-                <option value="new">2026 sparkle only</option>
-                <option value="veo">Veo wordmark only (Flow)</option>
+                <option value="auto">Auto &mdash; detect the mark</option>
+                <option value="old">Sparkle &mdash; classic logo (default)</option>
+                <option value="new">Sparkle &mdash; 2026 logo</option>
+                <option value="veo">Veo wordmark (Flow)</option>
               </select>
             </label>
             <label>Removal strength <span class="val" id="strengthVal">1.00&times;</span>
@@ -208,6 +228,7 @@
           </div>
           <div class="apply-row">
             <button id="applyBtn" class="btn" type="button">Apply settings</button>
+            <button id="resetSettingsBtn" class="btn ghost sm" type="button">Reset to Erasio defaults</button>
             <span id="applyStatus" class="muted small"></span>
           </div>
         </div>
@@ -228,18 +249,21 @@
       </details>
 
       <div id="result" class="result" aria-live="polite" hidden>
-        <div class="result-text">
+        <div class="result-head">
           <span class="result-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
           </span>
-          <div>
-            <p class="ok">Done &mdash; watermark removed.</p>
+          <div class="result-copy">
+            <p class="ok">Cleaned video ready</p>
             <p class="muted small" id="resultSize"></p>
           </div>
+          <span class="result-chip">MP4 &middot; H.264</span>
         </div>
+        <video id="resultVideo" class="result-video" controls playsinline preload="metadata" hidden></video>
         <div class="result-actions">
           <a id="download" class="btn primary" download>Download clean MP4</a>
           <button id="shareBtn" class="btn" type="button" hidden>Save / share&hellip;</button>
+          <button id="againBtn" class="btn ghost" type="button">Clean another</button>
         </div>
       </div>
 
@@ -248,17 +272,26 @@
 
     <section class="how" aria-label="How it works">
       <article class="how-card">
-        <span class="how-num">01</span>
+        <div class="how-top">
+          <span class="how-num">01</span>
+          <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg></span>
+        </div>
         <h3>Detect</h3>
         <p>Scores both sparkle generations and the Veo wordmark against real frames, then picks the mark that is actually there.</p>
       </article>
       <article class="how-card">
-        <span class="how-num">02</span>
+        <div class="how-top">
+          <span class="how-num">02</span>
+          <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg></span>
+        </div>
         <h3>Reverse the blend</h3>
         <p>Rebuilds the alpha map and solves <code>original = (observed &minus; &alpha;&middot;mark) / (1 &minus; &alpha;)</code> on every frame.</p>
       </article>
       <article class="how-card">
-        <span class="how-num">03</span>
+        <div class="how-top">
+          <span class="how-num">03</span>
+          <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/></svg></span>
+        </div>
         <h3>Re-encode locally</h3>
         <p>WebCodecs writes a clean MP4 in your tab. No server, no upload, no account, no credits.</p>
       </article>
@@ -280,6 +313,19 @@
       </p>
     </footer>
   </main>
+
+  <div class="drop-overlay" id="dropOverlay" hidden aria-hidden="true">
+    <div class="drop-overlay-card">
+      <div class="dz-visual">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 15.5V4.5m0 0 3.8 3.8M12 4.5 8.2 8.3" />
+          <path d="M4 15v2.2A2.8 2.8 0 0 0 6.8 20h10.4a2.8 2.8 0 0 0 2.8-2.8V15" />
+        </svg>
+      </div>
+      <p class="dz-main">Drop to clean</p>
+      <p class="dz-sub">MP4 &middot; 720p / 1080p &middot; nothing leaves this tab</p>
+    </div>
+  </div>
 
   <script src="vendor/mp4box.all.min.js"></script>
   <script src="vendor/mp4-muxer.min.js"></script>

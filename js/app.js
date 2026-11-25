@@ -48,8 +48,12 @@
     barFill: $("barFill"),
     engineLog: $("engineLog"),
     result: $("result"),
+    resultVideo: $("resultVideo"),
     download: $("download"),
     resultSize: $("resultSize"),
+    againBtn: $("againBtn"),
+    topProgress: $("topProgress"),
+    dropOverlay: $("dropOverlay"),
     error: $("error"),
     engineMode: $("engineMode"),
     strength: $("strength"),
@@ -64,6 +68,7 @@
     forceRun: $("forceRun"),
     applyBtn: $("applyBtn"),
     applyStatus: $("applyStatus"),
+    resetSettingsBtn: $("resetSettingsBtn"),
     debugLog: $("debugLog"),
   };
 
@@ -184,6 +189,15 @@
     el.progressBox.hidden = true;
     el.result.hidden = true;
     el.shareBtn.hidden = true;
+    if (el.topProgress) {
+      el.topProgress.style.width = "0%";
+      el.topProgress.classList.remove("active");
+    }
+    if (el.resultVideo) {
+      el.resultVideo.pause();
+      el.resultVideo.removeAttribute("src");
+      el.resultVideo.hidden = true;
+    }
     resultShareFile = null;
     clearError();
     if (resultUrl) {
@@ -372,6 +386,22 @@
     el.strengthVal.textContent = Number(el.strength.value).toFixed(2) + "×";
     el.cleanupVal.textContent = Number(el.cleanup.value).toFixed(2);
     el.cleanup.disabled = el.edgeMode.value === "off";
+  }
+
+  function resetSettings() {
+    el.engineMode.value = "auto";
+    el.strength.value = "1";
+    el.edgeMode.value = "auto";
+    el.cleanup.value = "0.6";
+    el.pinPosition.checked = false;
+    el.posDx.value = "96";
+    el.posDy.value = "96";
+    el.posSize.value = "48";
+    el.forceRun.checked = false;
+    syncLabels();
+    detection = null;
+    el.applyStatus.textContent = "Defaults restored.";
+    publishConfig().catch(() => {});
   }
 
   // ---------- settings ----------
@@ -766,6 +796,10 @@
     const pct = Math.round((ratio || 0) * 100);
     el.percent.textContent = pct + "%";
     el.barFill.style.width = pct + "%";
+    if (el.topProgress) {
+      el.topProgress.style.width = pct + "%";
+      el.topProgress.classList.toggle("active", !!stage && stage !== "done");
+    }
     if (stage) el.engineLog.textContent = "engine stage: " + stage;
   }
 
@@ -860,6 +894,10 @@
       const base = (currentFile ? currentFile.name : "video").replace(/\.[^.]+$/, "");
       el.download.download = base + "-nowatermark.mp4";
       el.resultSize.textContent = formatBytes(blob.size) + " output file";
+      if (el.resultVideo) {
+        el.resultVideo.src = resultUrl;
+        el.resultVideo.hidden = false;
+      }
       el.shareBtn.hidden = true;
       resultShareFile = null;
       if (isTouch && navigator.canShare) {
@@ -1213,6 +1251,12 @@
     document.addEventListener("paste", onPaste);
     el.pasteBtn.addEventListener("click", pasteFromClipboard);
     el.shareBtn.addEventListener("click", shareResult);
+    el.againBtn.addEventListener("click", () => {
+      resetUI();
+      el.dropzone.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (!isTouch) el.file.click();
+    });
+    el.resetSettingsBtn.addEventListener("click", resetSettings);
     el.dropzone.addEventListener("click", () => {
       if (!canProcess) {
         el.supportCard.hidden = false;
@@ -1243,6 +1287,37 @@
       const files = e.dataTransfer && e.dataTransfer.files;
       if (files && files.length) acceptFiles(files);
     });
+
+    // Page-wide drop target: dropping anywhere outside the dropzone works too.
+    let dragDepth = 0;
+    const hasFiles = (e) =>
+      !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files"));
+    window.addEventListener("dragenter", (e) => {
+      if (!hasFiles(e) || !canProcess) return;
+      e.preventDefault();
+      dragDepth++;
+      el.dropOverlay.hidden = false;
+    });
+    window.addEventListener("dragover", (e) => {
+      if (!hasFiles(e) || !canProcess) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    });
+    window.addEventListener("dragleave", (e) => {
+      if (!hasFiles(e)) return;
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (!dragDepth) el.dropOverlay.hidden = true;
+    });
+    window.addEventListener("drop", (e) => {
+      dragDepth = 0;
+      el.dropOverlay.hidden = true;
+      if (e.defaultPrevented) return; // the dropzone already handled it
+      if (!hasFiles(e) || !canProcess) return;
+      e.preventDefault();
+      const files = e.dataTransfer.files;
+      if (files && files.length) acceptFiles(files);
+    });
+
     el.file.addEventListener("change", (e) => {
       acceptFiles(e.target.files);
       e.target.value = ""; // allow picking the same file(s) again
