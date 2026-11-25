@@ -1,7 +1,9 @@
 (function () {
   "use strict";
 
+  const STORAGE_KEY = "omni-purify-settings-v1";
   const $ = (id) => document.getElementById(id);
+
   const el = {
     dropzone: $("dropzone"),
     file: $("file"),
@@ -9,6 +11,7 @@
     fileName: $("fileName"),
     fileSize: $("fileSize"),
     fileDims: $("fileDims"),
+    detectBadge: $("detectBadge"),
     fileWarning: $("fileWarning"),
     resetBtn: $("resetBtn"),
     batchCard: $("batchCard"),
@@ -16,6 +19,8 @@
     batchStatus: $("batchStatus"),
     batchError: $("batchError"),
     batchOverall: $("batchOverall"),
+    batchStop: $("batchStop"),
+    batchSaveDir: $("batchSaveDir"),
     batchDownloadAll: $("batchDownloadAll"),
     batchClear: $("batchClear"),
     pasteBtn: $("pasteBtn"),
@@ -41,7 +46,14 @@
     compareRange: $("compareRange"),
     compareHint: $("compareHint"),
     afterTag: $("afterTag"),
+    zoomBtn: $("zoomBtn"),
+    zoomLabel: $("zoomLabel"),
+    frameTime: $("frameTime"),
+    frameTimeVal: $("frameTimeVal"),
+    splitVal: $("splitVal"),
     detectStatus: $("detectStatus"),
+    detectStatusIcon: $("detectStatusIcon"),
+    detectStatusText: $("detectStatusText"),
     progressBox: $("progressBox"),
     stage: $("stage"),
     percent: $("percent"),
@@ -56,6 +68,7 @@
     dropOverlay: $("dropOverlay"),
     error: $("error"),
     engineMode: $("engineMode"),
+    bitrateMult: $("bitrateMult"),
     strength: $("strength"),
     strengthVal: $("strengthVal"),
     edgeMode: $("edgeMode"),
@@ -81,6 +94,12 @@
     done: "Done",
   };
 
+  const STATUS_ICONS = {
+    ok: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+    warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5.5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>',
+    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
+  };
+
   let currentFile = null;
   let currentBuffer = null;
   let resultUrl = null;
@@ -91,10 +110,15 @@
   let detection = null;   // cached __erasioDetect.detect() result for this file
   let batchItems = [];
   let batchRunning = false;
+  let batchStopRequested = false;
   let newMaps = null;
   let canProcess = true;
   let lastProgressAt = Date.now();
   let stallNoticeAt = 0;
+  let zoomed = false;
+  let splitBeforeZoom = 50;
+  let supportsDisplayTransition;
+
   const isTouch = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
   const caps = { base: false, decoder: null, encoder: null };
   const DRAG_HINT = isTouch
@@ -142,6 +166,51 @@
     return (bytes / 1024 / 1024).toFixed(1) + " MB";
   }
 
+  // Probe whether display: none transitions actually animate on this engine
+  // (Firefox parses transition-behavior: allow-discrete but hides immediately).
+  function canTransitionDisplay() {
+    if (supportsDisplayTransition !== undefined) return supportsDisplayTransition;
+    if (!window.CSS || typeof window.CSS.supports !== "function" ||
+        !window.CSS.supports("transition-behavior", "allow-discrete") || !document.body) {
+      supportsDisplayTransition = false;
+      return false;
+    }
+    const probe = document.createElement("div");
+    probe.style.cssText = "transition: display 1s allow-discrete !important; display: block;";
+    document.body.appendChild(probe);
+    getComputedStyle(probe).display;
+    probe.style.display = "none";
+    supportsDisplayTransition = getComputedStyle(probe).display === "block";
+    probe.remove();
+    return supportsDisplayTransition;
+  }
+
+  function showElement(node) {
+    if (!node) return;
+    node.removeAttribute("data-closing");
+    node.hidden = false;
+  }
+
+  async function hideElement(node) {
+    if (!node || node.hidden) return;
+    if (canTransitionDisplay()) {
+      node.hidden = true;
+      return;
+    }
+    node.setAttribute("data-closing", "");
+    const animations = typeof node.getAnimations === "function" ? node.getAnimations() : [];
+    if (animations.length > 0) {
+      await Promise.race([
+        Promise.allSettled(animations.map((a) => a.finished)),
+        new Promise((r) => setTimeout(r, 400)),
+      ]);
+    }
+    if (node.hasAttribute("data-closing")) {
+      node.removeAttribute("data-closing");
+      node.hidden = true;
+    }
+  }
+
   // Turn engine errors into something actionable on a phone.
   function explainError(err) {
     const msg = err && err.message ? err.message : String(err);
@@ -164,11 +233,75 @@
     el.fileDims.hidden = false;
   }
 
+  function setDetectStatus(kind, text) {
+    el.detectStatus.hidden = false;
+    el.detectStatus.className = "status " + (kind || "");
+    el.detectStatusIcon.innerHTML = STATUS_ICONS[kind] || STATUS_ICONS.info;
+    el.detectStatusText.textContent = text;
+  }
+
+  function setDetectBadge(d) {
+    if (!el.detectBadge) return;
+    if (!d) {
+      el.detectBadge.hidden = true;
+      return;
+    }
+    if (d.chosen === "veo") {
+      el.detectBadge.textContent = "Veo wordmark";
+      el.detectBadge.className = "chip accent";
+    } else if (d.chosen === "diamond" && d.logo) {
+      el.detectBadge.textContent = d.logo.family === "new" ? "2026 sparkle" : "Logo sparkle";
+      el.detectBadge.className = "chip accent";
+    } else {
+      el.detectBadge.textContent = "No mark detected";
+      el.detectBadge.className = "chip warn";
+    }
+    el.detectBadge.hidden = false;
+  }
+
   // Before/after comparator: clip the cleaned layer from the left by `v`%.
   function setCompare(v) {
     const value = Math.max(0, Math.min(100, Number(v) || 0));
     el.compare.style.setProperty("--split", value + "%");
     el.compareRange.value = String(value);
+    if (el.splitVal) el.splitVal.textContent = "Split " + Math.round(value) + "%";
+  }
+
+  function updateZoomOrigin(box, width, height) {
+    if (!el.compare) return;
+    if (!box || !width || !height) {
+      el.compare.style.setProperty("--zx", "88%");
+      el.compare.style.setProperty("--zy", "88%");
+      return;
+    }
+    const cx = Math.max(10, Math.min(95, ((box.x + box.w / 2) / width) * 100));
+    const cy = Math.max(10, Math.min(95, ((box.y + box.h / 2) / height) * 100));
+    el.compare.style.setProperty("--zx", cx.toFixed(1) + "%");
+    el.compare.style.setProperty("--zy", cy.toFixed(1) + "%");
+  }
+
+  function setZoom(on) {
+    const next = !!on;
+    if (next === zoomed) return;
+    zoomed = next;
+    el.compare.classList.toggle("is-zoomed", zoomed);
+    if (el.zoomBtn) el.zoomBtn.setAttribute("aria-pressed", String(zoomed));
+    if (el.zoomLabel) el.zoomLabel.textContent = zoomed ? "Zoom 3×" : "Zoom 1×";
+    if (el.canvasBox.classList.contains("has-after")) {
+      if (zoomed) {
+        splitBeforeZoom = Number(el.compareRange.value) || 50;
+        const zx = parseFloat(el.compare.style.getPropertyValue("--zx")) || 88;
+        setCompare(zx);
+      } else {
+        setCompare(splitBeforeZoom);
+      }
+    }
+  }
+
+  function currentFrameFraction() {
+    if (!el.frameTime) return 0.05;
+    const pct = Math.max(5, Math.min(95, Number(el.frameTime.value) || 5));
+    return pct / 100;
   }
 
   function resetUI() {
@@ -177,9 +310,14 @@
     currentBuffer = null;
     previewImage = null;
     detection = null;
+    setZoom(false);
+    updateZoomOrigin(null);
+    if (el.frameTime) el.frameTime.value = "5";
+    if (el.frameTimeVal) el.frameTimeVal.textContent = "5%";
     el.file.value = "";
     el.fileCard.hidden = true;
     el.fileDims.hidden = true;
+    if (el.detectBadge) el.detectBadge.hidden = true;
     el.fileWarning.hidden = true;
     el.canvasBox.hidden = true;
     el.canvasBox.classList.remove("has-after", "preview-working");
@@ -357,9 +495,41 @@
     el.mobileNote.hidden = false;
   }
 
-  // The vendored engine calibrates position + opacity itself, exactly like the
-  // extension, so all it needs is the tuning. The detector is not involved in
-  // the re-encode.
+  // ---------- settings & persistence ----------
+
+  function saveStoredSettings() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        engineMode: el.engineMode.value,
+        bitrateMult: el.bitrateMult ? el.bitrateMult.value : "1",
+        strength: el.strength.value,
+        edgeMode: el.edgeMode.value,
+        cleanup: el.cleanup.value,
+        forceRun: el.forceRun.checked,
+      }));
+    } catch (err) { /* ignore storage restrictions */ }
+  }
+
+  function loadStoredSettings() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (saved.engineMode && ["auto", "old", "new", "veo"].includes(saved.engineMode)) {
+        el.engineMode.value = saved.engineMode;
+      }
+      if (el.bitrateMult && saved.bitrateMult && ["0.8", "1", "1.35"].includes(String(saved.bitrateMult))) {
+        el.bitrateMult.value = String(saved.bitrateMult);
+      }
+      if (saved.strength != null) el.strength.value = String(saved.strength);
+      if (saved.edgeMode && ["auto", "on", "off"].includes(saved.edgeMode)) {
+        el.edgeMode.value = saved.edgeMode;
+      }
+      if (saved.cleanup != null) el.cleanup.value = String(saved.cleanup);
+      if (typeof saved.forceRun === "boolean") el.forceRun.checked = saved.forceRun;
+    } catch (err) { /* ignore malformed storage */ }
+  }
+
   async function publishConfig() {
     if (!newMaps) newMaps = await window.__erasioDetect.loadNewMaps();
     const config = {
@@ -390,6 +560,7 @@
 
   function resetSettings() {
     el.engineMode.value = "auto";
+    if (el.bitrateMult) el.bitrateMult.value = "1";
     el.strength.value = "1";
     el.edgeMode.value = "auto";
     el.cleanup.value = "0.6";
@@ -398,13 +569,13 @@
     el.posDy.value = "96";
     el.posSize.value = "48";
     el.forceRun.checked = false;
+    try { localStorage.removeItem(STORAGE_KEY); } catch (err) { /* ignore */ }
     syncLabels();
+    readSettings();
     detection = null;
-    el.applyStatus.textContent = "Defaults restored.";
+    el.applyStatus.textContent = "Reset to Erasio defaults.";
     publishConfig().catch(() => {});
   }
-
-  // ---------- settings ----------
 
   function uiFamily() {
     const mode = el.engineMode.value;
@@ -441,6 +612,7 @@
     const family = uiFamily();
     settings.logoVersion = family;
     settings.baseStrength = Number(el.strength.value);
+    settings.bitrateMult = el.bitrateMult ? Number(el.bitrateMult.value) || 1 : 1;
     settings.edgeMode = el.edgeMode.value;
     settings.edgeStrength = Number(el.cleanup.value);
     settings.maskScale = 1;
@@ -485,14 +657,16 @@
 
   async function applySettings() {
     readSettings();
+    saveStoredSettings();
     await publishConfig();
-    el.applyStatus.textContent = "Applied.";
+    el.applyStatus.textContent = "Saved & applied.";
     detection = null; // pin/size may have changed
   }
 
   function readSettings() {
     settings.opacityMode = "auto";
     settings.baseStrength = Number(el.strength.value);
+    settings.bitrateMult = el.bitrateMult ? Number(el.bitrateMult.value) || 1 : 1;
     settings.edgeMode = el.edgeMode.value;
     settings.edgeStrength = Number(el.cleanup.value);
   }
@@ -513,11 +687,16 @@
     currentFile = file;
     detection = null;
     previewImage = null;
+    setZoom(false);
+    updateZoomOrigin(null);
+    if (el.frameTime) el.frameTime.value = "5";
+    if (el.frameTimeVal) el.frameTimeVal.textContent = "5%";
     currentBuffer = await file.arrayBuffer();
     if (token !== previewToken) return; // a newer file was selected meanwhile
     el.fileName.textContent = file.name;
     el.fileSize.textContent = formatBytes(file.size);
     el.fileDims.hidden = true;
+    setDetectBadge(null);
     el.fileCard.hidden = false;
     el.fileWarning.hidden = true;
     if (isTouch) {
@@ -555,9 +734,10 @@
       ctx.strokeRect(box.x + 0.5, box.y + 0.5, box.w, box.h);
       ctx.restore();
     }
+    updateZoomOrigin(box, imageData.width, imageData.height);
     el.canvasBox.classList.remove("has-after");
     el.compareHint.textContent = box
-      ? "Teal box marks the watermark being reversed. Run “Preview cleaned” to compare."
+      ? "Teal box marks the watermark being reversed. Use Zoom 3× or Preview cleaned to inspect."
       : "Run “Preview cleaned” to compare before and after.";
     el.canvasBox.hidden = false;
   }
@@ -573,18 +753,52 @@
     clearError();
     el.previewBtn.disabled = true;
     try {
-      const frame = await window.__decodeVideoFrame(currentBuffer, 0.05);
+      const frame = await window.__decodeVideoFrame(currentBuffer, currentFrameFraction());
       previewImage = frame.imageData;
       setDims(frame.width, frame.height);
       const box = detection && detection.logo
         ? { x: detection.logo.x, y: detection.logo.y, w: detection.logo.side, h: detection.logo.side }
-        : null;
+        : detection && detection.veo
+          ? { x: detection.veo.x, y: detection.veo.y, w: detection.veo.width, h: detection.veo.height }
+          : null;
       paintBefore(previewImage, box);
-      dbg(`preview: ${frame.width}x${frame.height}` + (detection ? "" : " (run Detect for a box)"));
+      dbg(`preview: ${frame.width}x${frame.height} @ ${Math.round(currentFrameFraction() * 100)}%` +
+        (detection ? "" : " (run Detect for a box)"));
     } catch (err) {
       showError("Preview failed: " + (err && err.message ? err.message : String(err)));
     } finally {
       el.previewBtn.disabled = false;
+    }
+  }
+
+  async function scrubFrame() {
+    if (!currentBuffer || busy) return;
+    const pct = Math.max(5, Math.min(95, Number(el.frameTime.value) || 5));
+    if (el.frameTimeVal) el.frameTimeVal.textContent = pct + "%";
+    const token = previewToken;
+    try {
+      const frame = await window.__decodeVideoFrame(currentBuffer, pct / 100);
+      if (token !== previewToken) return;
+      previewImage = frame.imageData;
+      setDims(frame.width, frame.height);
+      const hasAfter = el.canvasBox.classList.contains("has-after");
+      if (hasAfter) {
+        const candidate = await previewCandidate(previewImage);
+        if (token !== previewToken) return;
+        if (candidate) {
+          const prevSplit = Number(el.compareRange.value) || 50;
+          showCleanPreview(candidate, prevSplit);
+          return;
+        }
+      }
+      const box = detection && detection.logo
+        ? { x: detection.logo.x, y: detection.logo.y, w: detection.logo.side, h: detection.logo.side }
+        : detection && detection.veo
+          ? { x: detection.veo.x, y: detection.veo.y, w: detection.veo.width, h: detection.veo.height }
+          : null;
+      paintBefore(previewImage, box);
+    } catch (err) {
+      showError("Frame scrub failed: " + (err && err.message ? err.message : String(err)));
     }
   }
 
@@ -606,9 +820,7 @@
     clearError();
     if (!quiet) {
       el.detectBtn.disabled = true;
-      el.detectStatus.hidden = false;
-      el.detectStatus.className = "status";
-      el.detectStatus.textContent = "Scanning frames…";
+      setDetectStatus("", "Scanning frames…");
     }
     try {
       const d = await window.__erasioDetect.detect(currentBuffer, {
@@ -620,12 +832,13 @@
           edgeStrength: Number(el.cleanup.value),
         },
         onProgress: (r) => {
-          if (!quiet) el.detectStatus.textContent = `Scanning frames… ${Math.round(r * 100)}%`;
+          if (!quiet) el.detectStatusText.textContent = `Scanning frames… ${Math.round(r * 100)}%`;
         },
       });
       if (token && token !== previewToken) return null; // a newer file was dropped
       detection = d;
       setDims(d.width, d.height);
+      setDetectBadge(d);
       for (const note of d.notes || []) dbg("detect · " + note);
       dbg(`detect: ${d.width}x${d.height} — ${d.reason}`);
 
@@ -634,9 +847,7 @@
       else if (d.chosen === "diamond") text = "Watermark found — " + text;
       else text = "Nothing found — " + text;
 
-      el.detectStatus.hidden = false;
-      el.detectStatus.textContent = text;
-      el.detectStatus.className = "status " + (d.chosen ? "ok" : "warn");
+      setDetectStatus(d.chosen ? "ok" : "warn", text);
 
       if (d.logo) {
         el.posSize.value = d.logo.side;
@@ -691,11 +902,12 @@
   }
 
   // Paint the cleaned frame and turn the single frame into a before/after slider.
-  function showCleanPreview(candidate) {
+  function showCleanPreview(candidate, splitPct) {
     const clone = new ImageData(new Uint8ClampedArray(previewImage.data), previewImage.width, previewImage.height);
     const out = window.__erasioInpaintFrame(clone, candidate);
 
-    paintBefore(previewImage, candidateBox(candidate));
+    const box = candidateBox(candidate);
+    paintBefore(previewImage, box);
     el.cleanPreview.width = out.width;
     el.cleanPreview.height = out.height;
     el.cleanPreview.getContext("2d").putImageData(out, 0, 0);
@@ -703,8 +915,8 @@
     el.canvasBox.classList.add("has-after");
     endWorking();
     el.canvasBox.hidden = false;
-    setCompare(50);
-    el.compareHint.textContent = DRAG_HINT;
+    setCompare(splitPct != null ? splitPct : 50);
+    el.compareHint.textContent = DRAG_HINT + " Toggle Zoom 3× to inspect the corner up close.";
     dbg(`preview clean: pos=(${candidate.x},${candidate.y}) box=${candidate.alphaMap.width}px ` +
       `strength=${candidate.baseStrength.toFixed(2)} opacity=${candidate.opacity} ` +
       `cleanup=${candidate.edgeCleanup ? candidate.edgeCleanup.strength : "off"}`);
@@ -716,7 +928,7 @@
   async function autoPreview(token) {
     if (!currentBuffer) return;
     try {
-      const frame = await window.__decodeVideoFrame(currentBuffer, 0.05);
+      const frame = await window.__decodeVideoFrame(currentBuffer, currentFrameFraction());
       if (token !== previewToken) return;
       previewImage = frame.imageData;
       setDims(frame.width, frame.height);
@@ -749,7 +961,7 @@
         el.compareHint.textContent = "Could not build the cleaned preview — run “Remove watermark” to check this clip.";
         return;
       }
-      showCleanPreview(candidate);
+      showCleanPreview(candidate, 50);
     } catch (err) {
       if (token !== previewToken) return;
       endWorking();
@@ -764,7 +976,7 @@
     el.canvasBox.classList.remove("has-after");
     try {
       if (!previewImage) {
-        const frame = await window.__decodeVideoFrame(currentBuffer, 0.05);
+        const frame = await window.__decodeVideoFrame(currentBuffer, currentFrameFraction());
         previewImage = frame.imageData;
         setDims(frame.width, frame.height);
       }
@@ -779,7 +991,7 @@
         showError("No watermark position to preview. Run Detect first, or pin the position manually.");
         return;
       }
-      showCleanPreview(candidate);
+      showCleanPreview(candidate, Number(el.compareRange.value) || 50);
     } catch (err) {
       showError("Clean preview failed: " + (err && err.message ? err.message : String(err)));
     } finally {
@@ -818,6 +1030,7 @@
   async function run() {
     if (!currentBuffer || busy || batchRunning) return;
     busy = true;
+    const startedAt = performance.now();
     lastProgressAt = Date.now();
     stallNoticeAt = 0;
     clearError();
@@ -881,19 +1094,20 @@
           (settings.maskPosition
             ? ` pinned dx=${settings.maskPosition.dx} dy=${settings.maskPosition.dy}`
             : " offsets") +
-          ` strength=${settings.baseStrength.toFixed(2)} edge=${settings.edgeMode}`);
+          ` strength=${settings.baseStrength.toFixed(2)} bitrate=${settings.bitrateMult}x edge=${settings.edgeMode}`);
         blob = await window.__purifyVideo(currentBuffer, {
           onProgress: ({ stage, ratio }) => setProgress(stage, ratio),
         });
         if (info.box) dbg(`box: ${info.box.w}px at ${info.box.x},${info.box.y}`);
       }
 
+      const elapsedSec = ((performance.now() - startedAt) / 1000).toFixed(1);
       if (resultUrl) URL.revokeObjectURL(resultUrl);
       resultUrl = URL.createObjectURL(blob);
       el.download.href = resultUrl;
       const base = (currentFile ? currentFile.name : "video").replace(/\.[^.]+$/, "");
       el.download.download = base + "-nowatermark.mp4";
-      el.resultSize.textContent = formatBytes(blob.size) + " output file";
+      el.resultSize.textContent = `${formatBytes(blob.size)} output · cleaned in ${elapsedSec}s`;
       if (el.resultVideo) {
         el.resultVideo.src = resultUrl;
         el.resultVideo.hidden = false;
@@ -965,10 +1179,34 @@
         status: "queued", statusText: null, blob: null, url: null, error: null,
       });
     }
+    batchStopRequested = false;
     resetUI(); // hide the single-file editor and its stale preview
     el.batchCard.hidden = false;
     if (isTouch) el.batchCard.scrollIntoView({ behavior: "smooth", block: "start" });
     showBatchError("");
+    renderBatch();
+    updateBatchSummary();
+    if (!batchRunning) void runBatch();
+  }
+
+  function removeBatchItem(item) {
+    if (item.status === "working") return;
+    if (item.url) URL.revokeObjectURL(item.url);
+    batchItems = batchItems.filter((i) => i !== item);
+    if (!batchItems.length && !batchRunning) {
+      clearBatch();
+      return;
+    }
+    renderBatch();
+    updateBatchSummary();
+  }
+
+  function retryBatchItem(item) {
+    if (item.status !== "error") return;
+    item.status = "queued";
+    item.statusText = null;
+    item.error = null;
+    batchStopRequested = false;
     renderBatch();
     updateBatchSummary();
     if (!batchRunning) void runBatch();
@@ -993,8 +1231,7 @@
       sub.className = "batch-sub";
       const status = document.createElement("span");
       status.className = "batch-status " + item.status;
-      status.textContent = item.statusText ||
-        ({ queued: "Queued", working: "Working", done: "Done", error: "Failed" })[item.status];
+      status.textContent = statusLabel(item);
       const size = document.createElement("span");
       size.textContent = formatBytes(item.size);
       sub.append(status, document.createTextNode("·"), size);
@@ -1005,14 +1242,37 @@
       barBox.appendChild(barFill);
       info.append(name, sub, barBox);
 
+      const rowActions = document.createElement("div");
+      rowActions.className = "batch-row-actions";
+
       const link = document.createElement("a");
       link.className = "btn sm batch-dl";
       link.textContent = "Download";
       link.download = outputName(item);
       link.hidden = item.status !== "done" || !item.url;
       if (item.url) link.href = item.url;
+      rowActions.appendChild(link);
 
-      row.append(icon, info, link);
+      if (item.status === "error") {
+        const retryBtn = document.createElement("button");
+        retryBtn.type = "button";
+        retryBtn.className = "btn sm";
+        retryBtn.textContent = "Retry";
+        retryBtn.addEventListener("click", () => retryBatchItem(item));
+        rowActions.appendChild(retryBtn);
+      }
+
+      if (item.status !== "working") {
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "btn sm ghost";
+        removeBtn.textContent = "Remove";
+        removeBtn.setAttribute("aria-label", `Remove ${item.name}`);
+        removeBtn.addEventListener("click", () => removeBatchItem(item));
+        rowActions.appendChild(removeBtn);
+      }
+
+      row.append(icon, info, rowActions);
       el.batchList.appendChild(row);
       item.rowEl = row;
       item.statusEl = status;
@@ -1025,7 +1285,9 @@
   function setRowStatus(item, status, text) {
     item.status = status;
     item.statusText = text || null;
-    if (item.rowEl) {
+    if (status === "done" || status === "error") {
+      renderBatch();
+    } else if (item.rowEl) {
       item.rowEl.className = "batch-row " + status;
       item.statusEl.className = "batch-status " + status;
       item.statusEl.textContent = statusLabel(item);
@@ -1052,21 +1314,44 @@
       el.batchStatus.textContent = "No files queued.";
       el.batchOverall.style.width = "0%";
       el.batchDownloadAll.disabled = true;
+      if (el.batchSaveDir) el.batchSaveDir.hidden = true;
+      if (el.batchStop) el.batchStop.hidden = true;
       el.batchClear.disabled = false;
       return;
     }
     const total = batchItems.length;
     const done = batchItems.filter((i) => i.status === "done").length;
     const failed = batchItems.filter((i) => i.status === "error").length;
+    const queued = batchItems.filter((i) => i.status === "queued").length;
     const active = batchItems.find((i) => i.status === "working");
     el.batchOverall.style.width = Math.round(((done + failed) / total) * 100) + "%";
     el.batchDownloadAll.disabled = done === 0;
     el.batchClear.disabled = batchRunning;
+
+    if (el.batchSaveDir) {
+      el.batchSaveDir.hidden = !(typeof window.showDirectoryPicker === "function" && done > 0);
+    }
+    if (el.batchStop) {
+      if (batchRunning) {
+        el.batchStop.hidden = false;
+        el.batchStop.disabled = batchStopRequested;
+        el.batchStop.textContent = batchStopRequested ? "Stopping…" : "Stop queue";
+      } else if (queued > 0) {
+        el.batchStop.hidden = false;
+        el.batchStop.disabled = false;
+        el.batchStop.textContent = "Resume queue";
+      } else {
+        el.batchStop.hidden = true;
+      }
+    }
+
     el.batchStatus.textContent = active
       ? `Processing ${batchItems.indexOf(active) + 1} of ${total}: ${active.name}`
       : batchRunning
         ? `Starting next file… (${done + failed}/${total} finished)`
-        : `Finished — ${done} cleaned, ${failed} failed out of ${total}.`;
+        : queued > 0
+          ? `Paused — ${done} cleaned, ${queued} queued out of ${total}.`
+          : `Finished — ${done} cleaned, ${failed} failed out of ${total}.`;
   }
 
   async function processBatchItem(item) {
@@ -1126,11 +1411,6 @@
       item.url = URL.createObjectURL(blob);
       setRowProgress(item, 1);
       setRowStatus(item, "done", "Done · " + formatBytes(blob.size));
-      if (item.linkEl) {
-        item.linkEl.hidden = false;
-        item.linkEl.href = item.url;
-        item.linkEl.download = outputName(item);
-      }
     } catch (err) {
       const msg = explainError(err);
       item.error = msg;
@@ -1142,16 +1422,62 @@
   async function runBatch() {
     if (batchRunning) return;
     batchRunning = true;
+    renderBatch();
     updateBatchSummary();
     try {
-      while (true) {
+      while (!batchStopRequested) {
         const item = batchItems.find((i) => i.status === "queued");
         if (!item) break;
+        renderBatch();
         await processBatchItem(item);
       }
     } finally {
       batchRunning = false;
+      batchStopRequested = false;
+      renderBatch();
       updateBatchSummary();
+    }
+  }
+
+  function toggleBatchStopOrResume() {
+    if (batchRunning) {
+      batchStopRequested = true;
+      updateBatchSummary();
+      return;
+    }
+    const hasQueued = batchItems.some((i) => i.status === "queued");
+    if (hasQueued) {
+      batchStopRequested = false;
+      void runBatch();
+    }
+  }
+
+  async function saveBatchToFolder() {
+    const items = batchItems.filter((i) => i.status === "done" && i.blob);
+    if (!items.length || typeof window.showDirectoryPicker !== "function") return;
+    try {
+      const dir = await window.showDirectoryPicker({ mode: "readwrite" });
+      const used = new Set();
+      let saved = 0;
+      for (const item of items) {
+        let name = outputName(item);
+        if (used.has(name)) {
+          const base = name.replace(/\.mp4$/i, "");
+          let n = 2;
+          while (used.has(name)) name = base + "-" + n++ + ".mp4";
+        }
+        used.add(name);
+        const fh = await dir.getFileHandle(name, { create: true });
+        const writable = await fh.createWritable();
+        await writable.write(item.blob);
+        await writable.close();
+        saved++;
+      }
+      el.batchStatus.textContent = `Saved ${saved} clean MP4(s) to "${dir.name}".`;
+    } catch (err) {
+      if (err && err.name !== "AbortError") {
+        showBatchError("Could not save to folder: " + (err.message || String(err)));
+      }
     }
   }
 
@@ -1159,6 +1485,7 @@
     if (batchRunning) return;
     for (const item of batchItems) if (item.url) URL.revokeObjectURL(item.url);
     batchItems = [];
+    batchStopRequested = false;
     el.batchList.replaceChildren();
     el.batchCard.hidden = true;
     el.batchOverall.style.width = "0%";
@@ -1266,9 +1593,16 @@
       el.file.click();
     });
     el.dropzone.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
+      if (e.key === "Enter" && canProcess) {
         e.preventDefault();
-        if (canProcess) el.file.click();
+        el.file.click();
+      } else if (e.key === " ") {
+        e.preventDefault(); // prevent scroll; trigger on keyup per native button
+      }
+    });
+    el.dropzone.addEventListener("keyup", (e) => {
+      if (e.key === " " && canProcess) {
+        el.file.click();
       }
     });
     ["dragenter", "dragover"].forEach((type) =>
@@ -1296,7 +1630,7 @@
       if (!hasFiles(e) || !canProcess) return;
       e.preventDefault();
       dragDepth++;
-      el.dropOverlay.hidden = false;
+      showElement(el.dropOverlay);
     });
     window.addEventListener("dragover", (e) => {
       if (!hasFiles(e) || !canProcess) return;
@@ -1306,11 +1640,11 @@
     window.addEventListener("dragleave", (e) => {
       if (!hasFiles(e)) return;
       dragDepth = Math.max(0, dragDepth - 1);
-      if (!dragDepth) el.dropOverlay.hidden = true;
+      if (!dragDepth) void hideElement(el.dropOverlay);
     });
     window.addEventListener("drop", (e) => {
       dragDepth = 0;
-      el.dropOverlay.hidden = true;
+      void hideElement(el.dropOverlay);
       if (e.defaultPrevented) return; // the dropzone already handled it
       if (!hasFiles(e) || !canProcess) return;
       e.preventDefault();
@@ -1322,6 +1656,9 @@
       acceptFiles(e.target.files);
       e.target.value = ""; // allow picking the same file(s) again
     });
+
+    if (el.batchStop) el.batchStop.addEventListener("click", toggleBatchStopOrResume);
+    if (el.batchSaveDir) el.batchSaveDir.addEventListener("click", saveBatchToFolder);
     el.batchDownloadAll.addEventListener("click", downloadAll);
     el.batchClear.addEventListener("click", clearBatch);
     el.resetBtn.addEventListener("click", resetUI);
@@ -1331,11 +1668,35 @@
     el.runBtn.addEventListener("click", run);
     el.applyBtn.addEventListener("click", applySettings);
     el.compareRange.addEventListener("input", () => setCompare(el.compareRange.value));
-    [el.strength, el.cleanup].forEach((input) => input.addEventListener("input", syncLabels));
-    el.edgeMode.addEventListener("change", syncLabels);
+
+    if (el.zoomBtn) {
+      el.zoomBtn.addEventListener("click", () => setZoom(!zoomed));
+    }
+    if (el.frameTime) {
+      el.frameTime.addEventListener("input", () => {
+        if (el.frameTimeVal) el.frameTimeVal.textContent = el.frameTime.value + "%";
+      });
+      el.frameTime.addEventListener("change", scrubFrame);
+    }
+
+    [el.strength, el.cleanup].forEach((input) =>
+      input.addEventListener("input", () => {
+        syncLabels();
+        saveStoredSettings();
+      })
+    );
+    [el.edgeMode, el.bitrateMult, el.forceRun].forEach((ctrl) => {
+      if (!ctrl) return;
+      ctrl.addEventListener("change", () => {
+        syncLabels();
+        readSettings();
+        saveStoredSettings();
+      });
+    });
     el.engineMode.addEventListener("change", () => {
       detection = null;
       el.applyStatus.textContent = "";
+      saveStoredSettings();
     });
   }
 
@@ -1353,7 +1714,9 @@
 
   (async function init() {
     captureConsole();
+    loadStoredSettings();
     syncLabels();
+    readSettings();
     setCompare(50);
     adaptForTouch();
     bindEvents();

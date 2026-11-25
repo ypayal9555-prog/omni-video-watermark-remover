@@ -18,6 +18,8 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <a href="#main-content" class="skip-link visually-hidden">Skip to workspace</a>
+
   <header class="topbar">
     <div class="topbar-inner">
       <a class="brand" href="./" aria-label="Omni Purify home">
@@ -25,36 +27,28 @@
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1.8c.62 4.87 4.33 8.58 9.2 9.2-4.87.62-8.58 4.33-9.2 9.2-.62-4.87-4.33-8.58-9.2-9.2 4.87-.62 8.58-4.33 9.2-9.2Z"/></svg>
         </span>
         <span class="brand-name">Omni<span>Purify</span></span>
-        <span class="brand-tag">1.3.1 engine</span>
+        <span class="brand-tag">Erasio studio</span>
       </a>
       <div class="topbar-right">
-        <span class="pill pill-live"><span class="pulse" aria-hidden="true"></span> Local only</span>
+        <span class="pill pill-live"><span class="pulse" aria-hidden="true"></span> Local WebCodecs</span>
         <a class="ghost-link" href="https://github.com/ypayal9555-prog/omni-video-watermark-remover" target="_blank" rel="noopener">GitHub <span aria-hidden="true">↗</span></a>
       </div>
     </div>
     <div class="topbar-progress" id="topProgress" aria-hidden="true"></div>
   </header>
 
-  <main class="wrap" id="top">
+  <main class="wrap" id="main-content" tabindex="-1">
     <section class="hero">
-      <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Erasio 1.3.1 math &middot; rebuilt for the browser</p>
+      <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Erasio 1.3.1 / 1.3.2 math &middot; 720p &amp; 1080p MP4</p>
       <h1>Remove the sparkle.<br /><span class="grad-text">Keep the frame.</span></h1>
       <p class="lede">
-        Reverses Google's exact alpha blend for the <strong>Gemini / Omni sparkle</strong> and the
-        <strong>Veo wordmark</strong> &mdash; same masks, offsets and opacity calibration as the
-        Erasio extension. Your video is decoded and re-encoded inside this tab.
+        Reverses Google's exact alpha blend for the <strong>Gemini / Omni sparkle</strong> and
+        <strong>Veo wordmark</strong> right inside this tab &mdash; zero uploads, zero credits.
       </p>
-      <ul class="badges" role="list">
-        <li>720p &amp; 1080p</li>
-        <li>WebCodecs</li>
-        <li>Zero uploads</li>
-        <li>Visible watermark only</li>
-      </ul>
-
       <ol class="steps" role="list" aria-label="How it works">
-        <li><span aria-hidden="true">1</span> Pick a clip</li>
-        <li><span aria-hidden="true">2</span> Check the frame</li>
-        <li><span aria-hidden="true">3</span> Save the MP4</li>
+        <li><span aria-hidden="true">1</span> Drop MP4(s)</li>
+        <li><span aria-hidden="true">2</span> Inspect &amp; zoom</li>
+        <li><span aria-hidden="true">3</span> Export clean MP4</li>
       </ol>
     </section>
 
@@ -69,24 +63,38 @@
       </div>
     </section>
 
-    <section class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Choose or drop an MP4 file">
-      <input type="file" id="file" accept="video/mp4,.mp4" multiple hidden />
-      <div class="dz-visual" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 15.5V4.5m0 0 3.8 3.8M12 4.5 8.2 8.3" />
-          <path d="M4 15v2.2A2.8 2.8 0 0 0 6.8 20h10.4a2.8 2.8 0 0 0 2.8-2.8V15" />
-        </svg>
+    <section class="intake-bar">
+      <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Choose or drop MP4 files">
+        <input type="file" id="file" accept="video/mp4,.mp4" multiple hidden />
+        <div class="dz-visual" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 15.5V4.5m0 0 3.8 3.8M12 4.5 8.2 8.3" />
+            <path d="M4 15v2.2A2.8 2.8 0 0 0 6.8 20h10.4a2.8 2.8 0 0 0 2.8-2.8V15" />
+          </svg>
+        </div>
+        <div class="dz-copy">
+          <p class="dz-main" id="dzMain">Drop your MP4s here</p>
+          <p class="dz-sub" id="dzSub">or <span class="link">browse files</span> &mdash; pick several for batch queue. 720p / 1080p MP4s, or press <kbd>Ctrl</kbd>+<kbd>V</kbd>.</p>
+        </div>
+        <span class="dz-cta" aria-hidden="true">
+          Choose MP4
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15m0 0-5.5-5.5M19 12l-5.5 5.5"/></svg>
+        </span>
+        <p class="dz-foot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
+          Processed locally on your device.
+        </p>
       </div>
-      <p class="dz-main" id="dzMain">Drop your MP4s here</p>
-      <p class="dz-sub" id="dzSub">or <span class="link">browse files</span> &mdash; select several at once for bulk processing. 720p / 1080p only. You can also <span class="link">paste with Ctrl+V</span>.</p>
-      <span class="dz-cta" aria-hidden="true">
-        Choose MP4 files
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15m0 0-5.5-5.5M19 12l-5.5 5.5"/></svg>
-      </span>
-      <p class="dz-foot">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
-        Processed on your device. Nothing is uploaded.
-      </p>
+
+      <div class="paste-row">
+        <button id="pasteBtn" class="btn ghost sm" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="6" y="4" width="12" height="17" rx="2" /><path d="M9 4V3h6v1M9 10h6M9 14h6" />
+          </svg>
+          <span id="pasteBtnLabel">Paste from clipboard (Ctrl+V)</span>
+        </button>
+        <span class="muted small" id="pasteHint">Copy an MP4 and press Ctrl+V anywhere on the page.</span>
+      </div>
     </section>
 
     <p class="mobile-note" id="mobileNote" hidden>
@@ -94,46 +102,38 @@
       720p clips under a minute work best &mdash; long 1080p videos can run out of memory.
     </p>
 
-    <div class="paste-row">
-      <button id="pasteBtn" class="btn ghost sm" type="button">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="6" y="4" width="12" height="17" rx="2" /><path d="M9 4V3h6v1M9 10h6M9 14h6" />
-        </svg>
-        <span id="pasteBtnLabel">Paste from clipboard (Ctrl+V)</span>
-      </button>
-      <span class="muted small" id="pasteHint">Copy an MP4, then press Ctrl+V anywhere on this page.</span>
-    </div>
-
-    <section class="panel batch" id="batchCard" hidden>
+    <section class="panel batch" id="batchCard" hidden aria-label="Batch queue">
       <header class="batch-head">
         <div>
-          <p class="batch-eyebrow">Bulk mode</p>
-          <h2>Batch queue</h2>
+          <p class="batch-eyebrow">Bulk queue</p>
+          <h2>Batch processing</h2>
           <p class="muted small" id="batchStatus" role="status" aria-live="polite">Preparing…</p>
         </div>
         <div class="batch-actions">
-          <button id="batchDownloadAll" class="btn primary" type="button" disabled title="Downloads each cleaned MP4 separately">Download all</button>
+          <button id="batchStop" class="btn sm" type="button" hidden>Stop queue</button>
+          <button id="batchSaveDir" class="btn sm" type="button" hidden>Save to folder</button>
+          <button id="batchDownloadAll" class="btn primary" type="button" disabled>Download all</button>
           <button id="batchClear" class="btn ghost sm" type="button">Clear queue</button>
         </div>
       </header>
       <div class="batch-progress"><div id="batchOverall"></div></div>
       <ol class="batch-list" id="batchList"></ol>
       <p class="muted small batch-note" id="batchNote">
-        Files are processed one at a time so each gets Erasio's own calibration. You can drop more
-        MP4s while the queue runs — keep this tab open until it finishes.
+        Files run sequentially so each receives full Erasio calibration. Drop more MP4s anytime while the queue is running.
       </p>
       <p id="batchError" class="error" role="alert" hidden></p>
     </section>
 
-    <section class="panel" id="fileCard" hidden>
+    <section class="panel studio" id="fileCard" hidden aria-label="Video studio workspace">
       <header class="file-row">
         <div class="file-icon" aria-hidden="true">MP4</div>
         <div class="file-meta">
-          <strong id="fileName">&mdash;</strong>
+          <h2 class="file-title" id="fileName">&mdash;</h2>
           <span class="file-sub">
             <span id="fileSize" class="muted"></span>
             <span class="dot-sep" aria-hidden="true">&middot;</span>
             <span id="fileDims" class="chip" hidden></span>
+            <span id="detectBadge" class="chip accent" hidden></span>
           </span>
         </div>
         <button id="resetBtn" class="btn ghost sm" type="button">Remove file</button>
@@ -141,133 +141,188 @@
 
       <p id="fileWarning" class="file-warning" role="status" hidden></p>
 
-      <div class="actions">
-        <div class="action-tools" role="group" aria-label="Preview and detection">
-          <button id="previewBtn" class="btn" type="button">Preview frame</button>
-          <button id="detectBtn" class="btn" type="button">Detect watermark</button>
-          <button id="cleanPreviewBtn" class="btn" type="button">Preview cleaned</button>
+      <div class="studio-grid">
+        <div class="studio-stage">
+          <div class="canvas-box" id="canvasBox" hidden>
+            <div class="compare-stage">
+              <div class="compare" id="compare">
+                <div class="compare-layer before">
+                  <canvas id="preview"></canvas>
+                  <span class="tag tag-before">Before</span>
+                </div>
+                <div class="compare-layer after">
+                  <canvas id="cleanPreview"></canvas>
+                </div>
+                <span class="tag tag-after" id="afterTag">After</span>
+                <div class="compare-divider" aria-hidden="true">
+                  <span class="compare-knob">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 7-5 5 5 5M14.5 7l5 5-5 5"/></svg>
+                  </span>
+                </div>
+                <input id="compareRange" class="compare-range" type="range" min="0" max="100" step="0.1" value="50" aria-label="Compare before and after" />
+              </div>
+            </div>
+
+            <div class="compare-bar">
+              <button id="zoomBtn" class="btn sm ghost" type="button" aria-pressed="false" title="Zoom into the detected watermark corner">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4M11 8v6M8 11h6"/></svg>
+                <span id="zoomLabel">Zoom 1&times;</span>
+              </button>
+              <label class="frame-scrub" for="frameTime">
+                <span class="scrub-label">Frame <strong id="frameTimeVal">5%</strong></span>
+                <input id="frameTime" type="range" min="5" max="95" step="5" value="5" />
+              </label>
+              <span class="split-pill" id="splitVal" aria-hidden="true">Split 50%</span>
+            </div>
+
+            <p class="compare-hint" id="compareHint">Teal box marks the watermark being reversed.</p>
+          </div>
+
+          <div id="progressBox" hidden>
+            <div class="progress-head">
+              <span id="stage">Preparing&hellip;</span>
+              <span id="percent" class="muted">0%</span>
+            </div>
+            <div class="bar"><div id="barFill"></div></div>
+            <p class="muted small" id="engineLog"></p>
+          </div>
+
+          <div id="result" class="result" aria-live="polite" hidden>
+            <div class="result-head">
+              <span class="result-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+              </span>
+              <div class="result-copy">
+                <p class="ok">Cleaned video ready</p>
+                <p class="muted small" id="resultSize"></p>
+              </div>
+              <span class="result-chip">MP4 &middot; H.264</span>
+            </div>
+            <video id="resultVideo" class="result-video" controls playsinline preload="metadata" hidden></video>
+            <div class="result-actions">
+              <a id="download" class="btn primary" download>Download clean MP4</a>
+              <button id="shareBtn" class="btn" type="button" hidden>Save / share&hellip;</button>
+              <button id="againBtn" class="btn ghost" type="button">Clean another</button>
+            </div>
+          </div>
+
+          <div id="error" class="error" role="alert" hidden></div>
         </div>
-        <button id="runBtn" class="btn primary cta" type="button">
-          <span>Remove watermark</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15m0 0-5.5-5.5M19 12l-5.5 5.5"/></svg>
-        </button>
-      </div>
 
-      <p id="detectStatus" class="status" role="status" aria-live="polite" hidden></p>
+        <aside class="studio-sidebar" aria-label="Inspection and engine controls">
+          <div class="actions">
+            <button id="runBtn" class="btn primary cta" type="button">
+              <span>Remove watermark</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15m0 0-5.5-5.5M19 12l-5.5 5.5"/></svg>
+            </button>
+            <div class="action-tools" role="group" aria-label="Preview and detection">
+              <button id="previewBtn" class="btn sm" type="button">Preview frame</button>
+              <button id="detectBtn" class="btn sm" type="button">Detect</button>
+              <button id="cleanPreviewBtn" class="btn sm" type="button">Preview cleaned</button>
+            </div>
+          </div>
 
-      <div class="canvas-box" id="canvasBox" hidden>
-        <div class="compare" id="compare">
-          <div class="compare-layer before">
-            <canvas id="preview"></canvas>
-            <span class="tag tag-before">Before</span>
-          </div>
-          <div class="compare-layer after">
-            <canvas id="cleanPreview"></canvas>
-          </div>
-          <span class="tag tag-after" id="afterTag">After</span>
-          <div class="compare-divider" aria-hidden="true">
-            <span class="compare-knob">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 7-5 5 5 5M14.5 7l5 5-5 5"/></svg>
-            </span>
-          </div>
-          <input id="compareRange" class="compare-range" type="range" min="0" max="100" step="0.1" value="50" aria-label="Compare before and after" />
-        </div>
-        <p class="compare-hint" id="compareHint">Teal box marks the watermark being reversed.</p>
-      </div>
-
-      <details class="tune" id="tuneBox">
-        <summary>
-          <span>Engines &amp; fine-tuning</span>
-          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
-        </summary>
-        <div class="tune-body">
-          <p class="muted small">
-            Google stamps two different marks: the <strong>sparkle</strong> (the four-point
-            star, in two logo generations with different alpha) and the
-            <strong>Veo wordmark</strong>. Auto mode scores the families on real frames and
-            picks the one that is actually there.
+          <p id="detectStatus" class="status" role="status" aria-live="polite" hidden>
+            <span class="status-icon" id="detectStatusIcon" aria-hidden="true"></span>
+            <span id="detectStatusText"></span>
           </p>
 
-          <div class="grid">
-            <label>Watermark engine
-              <select id="engineMode">
-                <option value="auto">Auto &mdash; detect the mark</option>
-                <option value="old">Sparkle &mdash; classic logo (default)</option>
-                <option value="new">Sparkle &mdash; 2026 logo</option>
-                <option value="veo">Veo wordmark (Flow)</option>
-              </select>
-            </label>
-            <label>Removal strength <span class="val" id="strengthVal">1.00&times;</span>
-              <input type="range" id="strength" min="0.5" max="1.5" step="0.01" value="1" />
-            </label>
-            <label>Edge cleanup
-              <select id="edgeMode">
-                <option value="auto">Auto &mdash; Erasio rule</option>
-                <option value="on">Always on</option>
-                <option value="off">Off</option>
-              </select>
-            </label>
-            <label>Cleanup strength <span class="val" id="cleanupVal">0.60</span>
-              <input type="range" id="cleanup" min="0" max="1" step="0.05" value="0.6" />
-            </label>
-          </div>
+          <details class="tune" id="tuneBox">
+            <summary>
+              <span>Engines &amp; fine-tuning</span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="tune-body">
+              <p class="muted small">
+                Auto scores both sparkle generations and the Veo wordmark on real frames and selects the matching engine.
+              </p>
 
-          <div class="grid pin-grid">
-            <label class="check"><input type="checkbox" id="pinPosition" /> Pin position manually</label>
-            <label>Inset from right (px) <input type="number" id="posDx" min="0" value="96" inputmode="numeric" /></label>
-            <label>Inset from bottom (px) <input type="number" id="posDy" min="0" value="96" inputmode="numeric" /></label>
-            <label>Mark size (px) <input type="number" id="posSize" min="8" value="48" inputmode="numeric" /></label>
-          </div>
-          <p class="muted small">
-            Detection fills these in for you. Only touch them if the box in the preview is in the
-            wrong place.
-          </p>
+              <div class="grid">
+                <div class="field field-span">
+                  <label for="engineMode">Watermark engine</label>
+                  <select id="engineMode">
+                    <option value="auto">Auto &mdash; Erasio default (logo first, then 2026)</option>
+                    <option value="old">Logo only (bg_48 / paired star)</option>
+                    <option value="new">2026 sparkle only</option>
+                    <option value="veo">Veo wordmark only (Flow)</option>
+                  </select>
+                </div>
 
-          <div class="grid">
-            <label class="check"><input type="checkbox" id="forceRun" /> Run even if nothing is detected</label>
-          </div>
-          <div class="apply-row">
-            <button id="applyBtn" class="btn" type="button">Apply settings</button>
-            <button id="resetSettingsBtn" class="btn ghost sm" type="button">Reset to Erasio defaults</button>
-            <span id="applyStatus" class="muted small"></span>
-          </div>
-        </div>
-      </details>
+                <div class="field">
+                  <label for="bitrateMult">Output quality</label>
+                  <select id="bitrateMult">
+                    <option value="0.8">Compact (0.8&times;)</option>
+                    <option value="1" selected>Balanced (1.0&times;)</option>
+                    <option value="1.35">High detail (1.35&times;)</option>
+                  </select>
+                </div>
 
-      <div id="progressBox" hidden>
-        <div class="progress-head">
-          <span id="stage">Preparing&hellip;</span>
-          <span id="percent" class="muted">0%</span>
-        </div>
-        <div class="bar"><div id="barFill"></div></div>
-        <p class="muted small" id="engineLog"></p>
+                <div class="field">
+                  <label for="strength">Removal strength <span class="val" id="strengthVal">1.00&times;</span></label>
+                  <input type="range" id="strength" min="0.5" max="1.5" step="0.01" value="1" />
+                </div>
+
+                <div class="field">
+                  <label for="edgeMode">Edge cleanup</label>
+                  <select id="edgeMode">
+                    <option value="auto">Auto &mdash; Erasio rule</option>
+                    <option value="on">Always on</option>
+                    <option value="off">Off</option>
+                  </select>
+                </div>
+
+                <div class="field field-span">
+                  <label for="cleanup">Cleanup strength <span class="val" id="cleanupVal">0.60</span></label>
+                  <input type="range" id="cleanup" min="0" max="1" step="0.05" value="0.6" />
+                </div>
+              </div>
+
+              <div class="grid pin-grid">
+                <label class="check" for="pinPosition">
+                  <input type="checkbox" id="pinPosition" />
+                  <span>Pin position manually</span>
+                </label>
+                <div class="field">
+                  <label for="posDx">Right inset (px)</label>
+                  <input type="number" id="posDx" min="0" value="96" inputmode="numeric" />
+                </div>
+                <div class="field">
+                  <label for="posDy">Bottom inset (px)</label>
+                  <input type="number" id="posDy" min="0" value="96" inputmode="numeric" />
+                </div>
+                <div class="field">
+                  <label for="posSize">Mark size (px)</label>
+                  <input type="number" id="posSize" min="8" value="48" inputmode="numeric" />
+                </div>
+              </div>
+              <p class="muted small">
+                Auto-detection fills these automatically. Adjust only if the box misses the mark.
+              </p>
+
+              <div class="grid single-col">
+                <label class="check" for="forceRun">
+                  <input type="checkbox" id="forceRun" />
+                  <span>Run even if nothing is detected</span>
+                </label>
+              </div>
+
+              <div class="apply-row">
+                <button id="applyBtn" class="btn sm" type="button">Apply &amp; save</button>
+                <button id="resetSettingsBtn" class="btn ghost sm" type="button">Reset defaults</button>
+                <span id="applyStatus" class="muted small" role="status" aria-live="polite"></span>
+              </div>
+            </div>
+          </details>
+
+          <details class="debug" id="debugBox">
+            <summary>
+              <span>Engine debug log</span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <pre id="debugLog">No engine output yet.</pre>
+          </details>
+        </aside>
       </div>
-
-      <details class="debug" id="debugBox">
-        <summary>Engine debug log</summary>
-        <pre id="debugLog">No engine output yet.</pre>
-      </details>
-
-      <div id="result" class="result" aria-live="polite" hidden>
-        <div class="result-head">
-          <span class="result-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
-          </span>
-          <div class="result-copy">
-            <p class="ok">Cleaned video ready</p>
-            <p class="muted small" id="resultSize"></p>
-          </div>
-          <span class="result-chip">MP4 &middot; H.264</span>
-        </div>
-        <video id="resultVideo" class="result-video" controls playsinline preload="metadata" hidden></video>
-        <div class="result-actions">
-          <a id="download" class="btn primary" download>Download clean MP4</a>
-          <button id="shareBtn" class="btn" type="button" hidden>Save / share&hellip;</button>
-          <button id="againBtn" class="btn ghost" type="button">Clean another</button>
-        </div>
-      </div>
-
-      <div id="error" class="error" role="alert" hidden></div>
     </section>
 
     <section class="how" aria-label="How it works">
@@ -276,7 +331,7 @@
           <span class="how-num">01</span>
           <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg></span>
         </div>
-        <h3>Detect</h3>
+        <h2>Detect</h2>
         <p>Scores both sparkle generations and the Veo wordmark against real frames, then picks the mark that is actually there.</p>
       </article>
       <article class="how-card">
@@ -284,7 +339,7 @@
           <span class="how-num">02</span>
           <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg></span>
         </div>
-        <h3>Reverse the blend</h3>
+        <h2>Reverse the blend</h2>
         <p>Rebuilds the alpha map and solves <code>original = (observed &minus; &alpha;&middot;mark) / (1 &minus; &alpha;)</code> on every frame.</p>
       </article>
       <article class="how-card">
@@ -292,7 +347,7 @@
           <span class="how-num">03</span>
           <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/></svg></span>
         </div>
-        <h3>Re-encode locally</h3>
+        <h2>Re-encode locally</h2>
         <p>WebCodecs writes a clean MP4 in your tab. No server, no upload, no account, no credits.</p>
       </article>
     </section>
@@ -301,12 +356,12 @@
       <p>
         Requires a modern browser with <strong>WebCodecs</strong>. Desktop: Chrome / Edge 94+.
         Android: Chrome, Edge or Samsung Internet 17+. iPhone / iPad: Safari on iOS 16.4+ (iOS 17.4+
-        recommended for encoding). Firefox for Android cannot encode video in the browser.
+        recommended). Firefox for Android cannot encode video in the browser.
         Only the <em>visible</em> sparkle or wordmark is removed &mdash; Google's invisible
         SynthID watermark survives re-encoding.
       </p>
       <p>
-        Engine reconstructed from the locally installed Erasio 1.3.1 extension.
+        Engine reconstructed from the locally installed Erasio 1.3.1 extension (verified identical through 1.3.2).
         Core reverse-blend algorithm credited to
         <a href="https://github.com/allenk/geminiwatermarktool" target="_blank" rel="noopener">Allen Kuo</a>.
         <a href="https://github.com/ypayal9555-prog/omni-video-watermark-remover/blob/main/NOTICE" target="_blank" rel="noopener">Notice</a>.
